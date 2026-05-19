@@ -1,0 +1,53 @@
+{
+  "name": "pinnedai",
+  "version": "0.0.1",
+  "description": "Pin PR description claims as permanent CI tests. AI agents write PRs that claim to do things — Pinned makes them prove it. Future regressions break CI with a back-reference to the original PR.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "pinned": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup src/cli.ts --format esm --target node20 --out-dir dist --shims --clean",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ci",
+    "pr",
+    "code-review",
+    "ai-coding",
+    "cursor",
+    "claude-code",
+    "devin",
+    "github-actions",
+    "test-generation",
+    "regression-prevention"
+  ],
+  "author": "Michael Zon",
+  "homepage": "https://pinnedai.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mzon7/pinnedai.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.3"
+  }
+}

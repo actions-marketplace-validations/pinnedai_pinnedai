@@ -1,0 +1,41 @@
+# GitHub Action wrapper around the pinnedai CLI.
+#
+# Usage in customer repos:
+#   permissions:
+#     pull-requests: write
+#     contents: write
+#   steps:
+#     - uses: mzon7/pinnedai-action@v1
+#       with:
+#         mode: comment   # or 'commit' to push the generated test
+#
+# Implementation: this is a composite action — runs `npx pinnedai`
+# inside the workflow. Keeps the action deployable without a separate
+# Docker image / Node bundling step.
+
+name: "pinnedai"
+description: "Pin PR description claims as permanent CI tests"
+author: "Michael Zon"
+branding:
+  icon: "lock"
+  color: "blue"
+inputs:
+  mode:
+    description: "Output mode — 'comment' (default, paste the generated test in a PR comment) or 'commit' (push it to the PR branch)"
+    required: false
+    default: "comment"
+  cli-version:
+    description: "pinnedai npm version to use. Default 'latest'."
+    required: false
+    default: "latest"
+runs:
+  using: "composite"
+  steps:
+    - name: Run pinnedai
+      shell: bash
+      env:
+        GITHUB_PR_BODY: ${{ github.event.pull_request.body }}
+        GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+        PINNEDAI_MODE: ${{ inputs.mode }}
+      run: |
+        npx --yes pinnedai@${{ inputs.cli-version }} check
