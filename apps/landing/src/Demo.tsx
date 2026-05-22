@@ -208,6 +208,22 @@ function ClaimChip({ claim }: { claim: Claim }) {
           <span className="chip-meta">in {claim.modulePath}</span>
         </span>
       );
+    case "lockfile-integrity":
+      return (
+        <span className="chip">
+          <span className="chip-tag">lockfile</span>
+          <span className="chip-route">{claim.lockfilePath}</span>
+          <span className="chip-meta">sha256 {claim.expectedSha256.slice(0, 8)}…</span>
+        </span>
+      );
+    case "config-invariant":
+      return (
+        <span className="chip">
+          <span className="chip-tag">config</span>
+          <span className="chip-route">{claim.configPath}</span>
+          <span className="chip-meta">{claim.label}</span>
+        </span>
+      );
   }
 }
 
@@ -298,6 +314,18 @@ function failureBlock(claim: Claim, filename: string): string {
     case "library-returns":
       return `${head} > pinned: library-returns ${claim.functionName} in ${claim.modulePath}
   AssertionError: expected ${JSON.stringify(claim.expected)} — got something different
+
+  ${back}
+`;
+    case "lockfile-integrity":
+      return `${head} > pinned: lockfile-integrity ${claim.lockfilePath}
+  AssertionError: SHA-256 changed (expected ${claim.expectedSha256.slice(0, 12)}…) — transitive deps may have shifted
+
+  ${back}
+`;
+    case "config-invariant":
+      return `${head} > pinned: config-invariant ${claim.label} in ${claim.configPath}
+  AssertionError: required substring missing — config likely "cleaned up" and load-bearing line removed
 
   ${back}
 `;

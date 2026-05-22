@@ -177,6 +177,21 @@ function preflight(claim: Claim, cwd: string): string | null {
       // find the binary it'll surface a clear ENOENT — which is then a
       // confirmable catch (the contract was that the command runs).
       return null;
+    case "lockfile-integrity": {
+      // Lockfile must exist or the hash comparison can't run.
+      const full = join(cwd, claim.lockfilePath);
+      if (!existsSync(full)) {
+        return `lockfile ${claim.lockfilePath} doesn't exist yet — pin is saved, will verify once it lands`;
+      }
+      return null;
+    }
+    case "config-invariant": {
+      const full = join(cwd, claim.configPath);
+      if (!existsSync(full)) {
+        return `config file ${claim.configPath} doesn't exist yet — pin is saved, will verify once it lands`;
+      }
+      return null;
+    }
   }
 }
 

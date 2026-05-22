@@ -222,6 +222,11 @@ export function coverageFromClaim(claim: Claim): PinCoverage {
       // modulePath IS the source — direct edits to it should flag
       // the pin as touched.
       return { files: [claim.modulePath] };
+    case "lockfile-integrity":
+      // Lockfile pin protects exactly one file — its sha hash.
+      return { files: [claim.lockfilePath] };
+    case "config-invariant":
+      return { files: [claim.configPath] };
     case "cli-output-contains":
     case "cli-exits-zero":
     case "cli-creates-file":
@@ -364,6 +369,10 @@ function claimLabel(c: Claim): string {
       return `\`cli ${escapeMarkdownCell(c.route)}\` (JSON keys: ${c.keys.map((k) => `\`${escapeMarkdownCell(k)}\``).join(", ")})`;
     case "library-returns":
       return `\`lib ${escapeMarkdownCell(c.functionName)} in ${escapeMarkdownCell(c.modulePath)}\``;
+    case "lockfile-integrity":
+      return `\`lockfile ${escapeMarkdownCell(c.lockfilePath)}\` (sha256: \`${c.expectedSha256.slice(0, 12)}…\`)`;
+    case "config-invariant":
+      return `\`config ${escapeMarkdownCell(c.label)}\` in \`${escapeMarkdownCell(c.configPath)}\``;
   }
 }
 

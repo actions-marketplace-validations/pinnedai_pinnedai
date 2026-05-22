@@ -14,6 +14,7 @@
 // wrapper does the git plumbing; this module is testable in isolation.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, basename } from "node:path";
 import type { Claim } from "./claimParser.js";
 import { claimRoute } from "./claimParser.js";
@@ -210,6 +211,108 @@ export function isTestPath(path: string): boolean {
 // monorepo roots can pass workspaceRoot for the entry point and we'll
 // recurse into apps/* / packages/* to find their package.json files
 // too. Capped at WORKSPACE_FANOUT_LIMIT to keep startup fast.
+// Detect lockfile-integrity pins from the working tree. Returns one
+// pin per lockfile present at repoRoot — typically zero or one (a
+// repo rarely has more than one PM's lockfile). The pin captures the
+// SHA-256 of the lockfile at this moment; future runs that find a
+// different hash fail. Surfaced at baseline-on-init time.
+export type LockfilePin = {
+  template: "lockfile-integrity";
+  lockfilePath: string;
+  expectedSha256: string;
+  suggestedPin: string; // not used directly — lockfile pins don't go
+                        // through the claim parser, but kept for shape
+                        // parity with CliLibraryPin
+};
+
+export function detectLockfilePins(repoPath: string): LockfilePin[] {
+  const candidates = [
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lockb",
+  ];
+  const found: LockfilePin[] = [];
+  for (const name of candidates) {
+    const full = join(repoPath, name);
+    if (!existsSync(full)) continue;
+    const data = readFileSync(full);
+    const sha256 = createHash("sha256").update(data).digest("hex");
+    found.push({
+      template: "lockfile-integrity",
+      lockfilePath: name,
+      expectedSha256: sha256,
+      suggestedPin: `lockfile ${name} sha256 ${sha256.slice(0, 12)}`,
+    });
+  }
+  return found;
+}
+
+// Well-known config invariants the detector emits as auto-pins at
+// baseline-on-init. Conservative whitelist: each entry has a real,
+// load-bearing reason to exist. Adding to this list = a pin every
+// AI-coder repo will get on install (with no FP risk because we only
+// auto-emit for files that actually exist + contain the expected text
+// already). If the text is MISSING at detect time, we don't pin —
+// that's the user's choice to add via `pinned protect`.
+export type ConfigInvariantPin = {
+  template: "config-invariant";
+  configPath: string;
+  expected: string;
+  label: string;
+  suggestedPin: string;
+};
+
+export function detectConfigInvariantPins(repoPath: string): ConfigInvariantPin[] {
+  const out: ConfigInvariantPin[] = [];
+
+  // 1. Pinned's own GitHub Actions workflow integrity. If the customer
+  //    installed pinned init's workflow, asserting that `id-token: write`
+  //    is declared catches AI-driven cleanup that removes the permission
+  //    (without which LLM extraction silently fails).
+  const wf = join(repoPath, ".github", "workflows", "pinned.yml");
+  if (existsSync(wf)) {
+    const content = readFileSync(wf, "utf8");
+    if (content.includes("id-token: write")) {
+      out.push({
+        template: "config-invariant",
+        configPath: ".github/workflows/pinned.yml",
+        expected: "id-token: write",
+        label: "OIDC permission",
+        suggestedPin: `Pinned workflow keeps the \`id-token: write\` OIDC permission.`,
+      });
+    }
+    if (content.includes("contents: write")) {
+      out.push({
+        template: "config-invariant",
+        configPath: ".github/workflows/pinned.yml",
+        expected: "contents: write",
+        label: "auto-commit permission",
+        suggestedPin: `Pinned workflow keeps the \`contents: write\` permission for auto-commit.`,
+      });
+    }
+  }
+
+  // 2. Pinned guardrail block in CLAUDE.md. If init installed it,
+  //    asserting the markers are still present catches AI agents that
+  //    "tidy up" CLAUDE.md and delete sections they don't recognize.
+  const claudeMd = join(repoPath, "CLAUDE.md");
+  if (existsSync(claudeMd)) {
+    const content = readFileSync(claudeMd, "utf8");
+    if (content.includes("<!-- pinnedai:start -->") && content.includes("<!-- pinnedai:end -->")) {
+      out.push({
+        template: "config-invariant",
+        configPath: "CLAUDE.md",
+        expected: "<!-- pinnedai:start -->",
+        label: "Pinned guardrail block",
+        suggestedPin: `CLAUDE.md keeps the Pinned guardrail block.`,
+      });
+    }
+  }
+
+  return out;
+}
+
 export type CliLibraryPin = {
   template: "cli-exits-zero" | "library-returns-candidate";
   // For cli-exits-zero: the binary name as customers invoke it.

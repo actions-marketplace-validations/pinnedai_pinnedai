@@ -1254,7 +1254,7 @@ program
         // pins from package.json bin entries. We prepend these to the
         // safe[] list so they win the per-template dedup against any
         // overlapping route-based suggestions.
-        const { detectCliLibraryPins } = await import("./scanDiff.js");
+        const { detectCliLibraryPins, detectLockfilePins, detectConfigInvariantPins } = await import("./scanDiff.js");
         try {
           const cliLibPins = detectCliLibraryPins(cwd);
           for (const p of cliLibPins) {
@@ -1272,6 +1272,75 @@ program
         } catch (e) {
           // Best-effort; don't block init on a CLI-detection error.
           out(`  ! CLI pin detection failed: ${(e as Error).message}`);
+        }
+
+        // Config-invariant pins (workflow OIDC perm, CLAUDE.md
+        // guardrail block, etc.) bypass parseClaims — they're emitted
+        // directly with a deterministic shape from the on-disk content.
+        try {
+          const configPins = detectConfigInvariantPins(cwd);
+          for (const cfg of configPins) {
+            const claim = {
+              template: "config-invariant" as const,
+              configPath: cfg.configPath,
+              expected: cfg.expected,
+              label: cfg.label,
+              raw: `config-invariant ${cfg.label} in ${cfg.configPath}`,
+            };
+            const gen = generateTest(claim, { prId });
+            const target = join(pinnedDir, gen.filename);
+            try {
+              assertInsideDir(target, pinnedDir);
+              writeFileSync(target, gen.content, { flag: "wx" });
+              registry = addEntry(registry, {
+                claimId: gen.claimId,
+                prId,
+                claim,
+                filename: gen.filename,
+              });
+              baselineAutoAdded += 1;
+            } catch (e) {
+              if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+                out(`  ! config-invariant pin failed for ${gen.filename}: ${(e as Error).message}`);
+              }
+            }
+          }
+        } catch (e) {
+          out(`  ! config-invariant pin detection failed: ${(e as Error).message}`);
+        }
+
+        // Lockfile-integrity pins bypass the suggestion→parseClaims
+        // pipeline (the claim shape doesn't have a natural-English form).
+        // Generate the pin file directly and stamp the registry.
+        try {
+          const lockfilePins = detectLockfilePins(cwd);
+          for (const lock of lockfilePins) {
+            const claim = {
+              template: "lockfile-integrity" as const,
+              lockfilePath: lock.lockfilePath,
+              expectedSha256: lock.expectedSha256,
+              raw: `lockfile-integrity ${lock.lockfilePath} sha256 ${lock.expectedSha256.slice(0, 12)}`,
+            };
+            const gen = generateTest(claim, { prId });
+            const target = join(pinnedDir, gen.filename);
+            try {
+              assertInsideDir(target, pinnedDir);
+              writeFileSync(target, gen.content, { flag: "wx" });
+              registry = addEntry(registry, {
+                claimId: gen.claimId,
+                prId,
+                claim,
+                filename: gen.filename,
+              });
+              baselineAutoAdded += 1;
+            } catch (e) {
+              if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+                out(`  ! lockfile pin failed for ${gen.filename}: ${(e as Error).message}`);
+              }
+            }
+          }
+        } catch (e) {
+          out(`  ! lockfile pin detection failed: ${(e as Error).message}`);
         }
 
         for (const s of safe.slice(0, MAX_BASELINE_AUTO_PINS)) {
@@ -4780,6 +4849,10 @@ function describeClaim(c: Claim): string {
       return `cli-json       \`${c.route}\`  →  JSON has keys: ${c.keys.join(", ")}`;
     case "library-returns":
       return `library        ${c.functionName} in ${c.modulePath}  →  returns ${JSON.stringify(c.expected)}`;
+    case "lockfile-integrity":
+      return `lockfile       ${c.lockfilePath}  →  sha256 ${c.expectedSha256.slice(0, 12)}…`;
+    case "config-invariant":
+      return `config         ${c.configPath}  →  ${c.label} present`;
   }
 }
 

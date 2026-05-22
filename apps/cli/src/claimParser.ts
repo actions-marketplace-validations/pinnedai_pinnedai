@@ -93,6 +93,49 @@ export type CliFlagSupportedClaim = {
   raw: string;
 };
 
+// Config-invariant claim. Asserts that a target file CONTAINS a
+// specific substring or matches a literal text rule. Single-purpose
+// template for catching AI-driven config drift — "AI cleaned up
+// CLAUDE.md and removed the Pinned guardrail block", "AI tidied
+// .github/workflows/pinned.yml and dropped id-token: write", "AI
+// rewrote .env.example and forgot to include STRIPE_SECRET_KEY".
+//
+// File contents must contain `expected` (substring match, anchor-free).
+// Both AUTO-detected by baseline (well-known invariants) and
+// user-pinnable via natural English (PR claim parser).
+export type ConfigInvariantClaim = {
+  template: "config-invariant";
+  // Repo-relative path to the file under contract.
+  configPath: string;
+  // Required substring that must appear in the file's text.
+  expected: string;
+  // Human-readable label for what's being protected. E.g.,
+  // "GitHub Actions OIDC permission", "Pinned guardrail block".
+  // Used in PINS.md + failure messages so the reader knows WHY.
+  label: string;
+  raw: string;
+};
+
+// Lockfile-integrity claim. Asserts the SHA-256 of one of the
+// supported lockfiles (package-lock.json / pnpm-lock.yaml / yarn.lock /
+// bun.lockb) at pin time. Subsequent runs that find a different hash
+// fail the pin — catches AI agents that regenerate the lockfile (via
+// `npm install` / `pnpm install`) and inadvertently change transitive
+// dependency resolutions, leading to mystery breakage on the next CI
+// build.
+//
+// Single-purpose template: no PR-claim parsing path (the user doesn't
+// say "lockfile sha matches"). Auto-emitted at baseline-on-init when
+// a lockfile is detected on disk.
+export type LockfileIntegrityClaim = {
+  template: "lockfile-integrity";
+  // The lockfile relative path from repo root.
+  lockfilePath: string;
+  // The pinned sha256 hex digest.
+  expectedSha256: string;
+  raw: string;
+};
+
 // Library/SDK claim: "Adds `parseConfig()` that returns `{version: 1}`."
 // Generated test imports the named export from a file, calls it with no
 // args (or the specified args), and deep-equals the return.
@@ -195,7 +238,9 @@ export type Claim =
   | CliCreatesFileClaim
   | CliJsonShapeClaim
   | CliFlagSupportedClaim
-  | LibraryReturnsClaim;
+  | LibraryReturnsClaim
+  | ConfigInvariantClaim
+  | LockfileIntegrityClaim;
 
 // A route token: must start with ASCII `/`, must not contain whitespace,
 // trailing punctuation, OR dangerous Unicode characters (RTL-override,
@@ -1154,6 +1199,18 @@ export function describeClaimForUser(c: Claim): ClaimDisplay {
         promise: `Calling \`${c.functionName}\` from \`${c.modulePath}\` continues to return ${JSON.stringify(c.expected)}.`,
         check: `Imports \`${c.functionName}\` from \`${c.modulePath}\`, calls it, and deep-equals the return against ${JSON.stringify(c.expected)}.`,
       };
+    case "lockfile-integrity":
+      return {
+        title: `\`${c.lockfilePath}\` content is unchanged`,
+        promise: `\`${c.lockfilePath}\` retains its SHA-256 (${c.expectedSha256.slice(0, 12)}…) — catches AI-driven \`npm install\` / \`pnpm install\` that silently changes transitive dependency resolutions.`,
+        check: `Reads \`${c.lockfilePath}\`, computes SHA-256, asserts it matches the value captured at pin time.`,
+      };
+    case "config-invariant":
+      return {
+        title: `${c.label} present in \`${c.configPath}\``,
+        promise: `\`${c.configPath}\` continues to contain the expected ${c.label} block — catches AI agents that "tidy" config and remove load-bearing lines.`,
+        check: `Reads \`${c.configPath}\`, asserts the required text is present (substring match).`,
+      };
   }
 }
 
@@ -1251,6 +1308,10 @@ export function badCaseForClaim(claim: Claim): string {
       return `\`${claim.route} --help\` did not list \`${claim.flag}\` flag (option removed)`;
     case "library-returns":
       return `calling \`${claim.functionName}\` in \`${claim.modulePath}\` did not return the expected value (function shape changed)`;
+    case "lockfile-integrity":
+      return `\`${claim.lockfilePath}\` SHA-256 changed (lockfile was regenerated or hand-edited; transitive deps may have shifted)`;
+    case "config-invariant":
+      return `${claim.label} block was removed from \`${claim.configPath}\` (likely AI "cleanup" that dropped a load-bearing config)`;
   }
 }
 
@@ -1308,6 +1369,8 @@ export function claimRoute(c: Claim): string | null {
     case "cli-flag-supported":
       return c.route;
     case "library-returns":
+    case "lockfile-integrity":
+    case "config-invariant":
       return null;
   }
 }
@@ -1326,7 +1389,11 @@ export function claimSlug(claim: Claim): string {
   const routeSource =
     claim.template === "library-returns"
       ? `${claim.modulePath}-${claim.functionName.replace(/\(.*\)/, "")}`
-      : claim.route;
+      : claim.template === "lockfile-integrity"
+        ? `lockfile-${claim.lockfilePath}-${claim.expectedSha256.slice(0, 12)}`
+        : claim.template === "config-invariant"
+          ? `config-${claim.configPath}-${claim.label}`
+          : claim.route;
   const route = routeSource
     .replace(/^\//, "")
     .replace(/[^a-z0-9]+/gi, "-")
@@ -1385,6 +1452,12 @@ export function claimKey(c: Claim): string {
       return `cli-flag-supported:${c.route}:${c.flag}`;
     case "library-returns":
       return `library-returns:${c.modulePath}:${c.functionName}:${JSON.stringify(c.expected)}`;
+    case "lockfile-integrity":
+      return `lockfile-integrity:${c.lockfilePath}:${c.expectedSha256.slice(0, 16)}`;
+    case "config-invariant":
+      // Hash the expected substring so two pins on the same config
+      // file with different required content don't collapse.
+      return `config-invariant:${c.configPath}:${c.label}`;
   }
 }
 

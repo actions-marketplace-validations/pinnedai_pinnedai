@@ -25,6 +25,8 @@ export type {
   CliJsonShapeClaim,
   CliFlagSupportedClaim,
   LibraryReturnsClaim,
+  ConfigInvariantClaim,
+  LockfileIntegrityClaim,
 } from "./claimParser.js";
 export { generateRateLimitTest } from "./templates/rateLimit.js";
 export { generateAuthRequiredTest } from "./templates/authRequired.js";
@@ -38,6 +40,8 @@ export { generateCliCreatesFileTest } from "./templates/cliCreatesFile.js";
 export { generateCliJsonShapeTest } from "./templates/cliJsonShape.js";
 export { generateCliFlagSupportedTest } from "./templates/cliFlagSupported.js";
 export { generateLibraryReturnsTest } from "./templates/libraryReturns.js";
+export { generateLockfileIntegrityTest } from "./templates/lockfileIntegrity.js";
+export { generateConfigInvariantTest } from "./templates/configInvariant.js";
 export type { GeneratedTest, GenerateOpts } from "./templates/rateLimit.js";
 
 import type { Claim } from "./claimParser.js";
@@ -54,6 +58,8 @@ import { generateCliCreatesFileTest } from "./templates/cliCreatesFile.js";
 import { generateCliJsonShapeTest } from "./templates/cliJsonShape.js";
 import { generateCliFlagSupportedTest } from "./templates/cliFlagSupported.js";
 import { generateLibraryReturnsTest } from "./templates/libraryReturns.js";
+import { generateLockfileIntegrityTest } from "./templates/lockfileIntegrity.js";
+import { generateConfigInvariantTest } from "./templates/configInvariant.js";
 
 // Convenience dispatcher — given any Claim, pick the right generator.
 // Keeps callers (CLI, landing demo, hosted Worker) DRY.
@@ -83,6 +89,10 @@ export function generateTest(claim: Claim, opts: GenerateOpts): GeneratedTest {
       return generateCliFlagSupportedTest(claim, opts);
     case "library-returns":
       return generateLibraryReturnsTest(claim, opts);
+    case "lockfile-integrity":
+      return generateLockfileIntegrityTest(claim, opts);
+    case "config-invariant":
+      return generateConfigInvariantTest(claim, opts);
   }
   // Exhaustiveness guard — if a new Claim variant is added without a
   // case here, TS will fail to compile this assignment with a clear
