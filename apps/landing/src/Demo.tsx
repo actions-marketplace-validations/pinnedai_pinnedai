@@ -192,6 +192,14 @@ function ClaimChip({ claim }: { claim: Claim }) {
           <span className="chip-meta">supports {claim.flag}</span>
         </span>
       );
+    case "cli-json-shape":
+      return (
+        <span className="chip">
+          <span className="chip-tag">cli-json</span>
+          <span className="chip-route">{claim.route}</span>
+          <span className="chip-meta">JSON ⊇ {claim.keys.join(", ")}</span>
+        </span>
+      );
     case "library-returns":
       return (
         <span className="chip">
@@ -278,6 +286,12 @@ function failureBlock(claim: Claim, filename: string): string {
     case "cli-flag-supported":
       return `${head} > pinned: cli-flag-supported \`${claim.route}\` ${claim.flag}
   AssertionError: expected --help output to mention "${claim.flag}" — flag removed from CLI
+
+  ${back}
+`;
+    case "cli-json-shape":
+      return `${head} > pinned: cli-json-shape \`${claim.route}\` (${claim.keys.length} keys)
+  AssertionError: parsed JSON missing required keys: ${claim.keys.join(", ")} — schema drift
 
   ${back}
 `;

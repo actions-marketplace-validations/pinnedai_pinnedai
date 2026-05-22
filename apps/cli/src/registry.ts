@@ -225,6 +225,7 @@ export function coverageFromClaim(claim: Claim): PinCoverage {
     case "cli-output-contains":
     case "cli-exits-zero":
     case "cli-creates-file":
+    case "cli-json-shape":
     case "cli-flag-supported":
       // CLI templates assert about a binary's externally-observable
       // behavior. We can't reliably infer which source file (out of
@@ -359,6 +360,8 @@ function claimLabel(c: Claim): string {
       return `\`cli ${escapeMarkdownCell(c.route)}\` (creates \`${escapeMarkdownCell(c.filePath)}\`)`;
     case "cli-flag-supported":
       return `\`cli ${escapeMarkdownCell(c.route)}\` (supports \`${escapeMarkdownCell(c.flag)}\`)`;
+    case "cli-json-shape":
+      return `\`cli ${escapeMarkdownCell(c.route)}\` (JSON keys: ${c.keys.map((k) => `\`${escapeMarkdownCell(k)}\``).join(", ")})`;
     case "library-returns":
       return `\`lib ${escapeMarkdownCell(c.functionName)} in ${escapeMarkdownCell(c.modulePath)}\``;
   }

@@ -170,6 +170,7 @@ function preflight(claim: Claim, cwd: string): string | null {
     case "cli-output-contains":
     case "cli-exits-zero":
     case "cli-creates-file":
+    case "cli-json-shape":
     case "cli-flag-supported":
       // The CLI binary's discoverability depends on PATH config that
       // we can't reliably introspect here. Let vitest try; if it can't

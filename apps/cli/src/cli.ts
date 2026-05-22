@@ -1202,12 +1202,6 @@ program
     let baselineAutoAdded = 0;
     let baselineSuggested = 0;
     const MAX_BASELINE_AUTO_PINS = 10;
-    const HIGH_CONFIDENCE_RULES = new Set([
-      "next-app-route-added",
-      "next-pages-route-added",
-      "express-routes-added",
-      "webhook-handler",
-    ]);
     if (setupMode === "auto" && !opts.plan && vitestUsable) {
       try {
         const repoFiles = walkRepo(cwd);
@@ -1252,6 +1246,34 @@ program
 
         let registry = baselineRegistry;
         const prId = `baseline-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
+
+        // Layer in CLI / package-export / config / lockfile pins from
+        // package.json + filesystem scanning. These are HIGH-confidence
+        // and work WITHOUT preview-URL infrastructure — biggest
+        // day-zero leverage. detectCliLibraryPins emits cli-exits-zero
+        // pins from package.json bin entries. We prepend these to the
+        // safe[] list so they win the per-template dedup against any
+        // overlapping route-based suggestions.
+        const { detectCliLibraryPins } = await import("./scanDiff.js");
+        try {
+          const cliLibPins = detectCliLibraryPins(cwd);
+          for (const p of cliLibPins) {
+            if (p.template !== "cli-exits-zero") continue;
+            // Prepend so cli-exits-zero pins consume their share of the
+            // MAX_BASELINE_AUTO_PINS budget before HTTP suggestions.
+            safe.unshift({
+              template: "cli-exits-zero",
+              route: p.identifier,
+              reason: `CLI binary "${p.identifier}" declared in ${relative(cwd, p.sourcePackageJson)} — pin --help still exits 0`,
+              suggestedPin: p.suggestedPin,
+              files: [p.resolvedPath],
+            } as (typeof safe)[number]);
+          }
+        } catch (e) {
+          // Best-effort; don't block init on a CLI-detection error.
+          out(`  ! CLI pin detection failed: ${(e as Error).message}`);
+        }
+
         for (const s of safe.slice(0, MAX_BASELINE_AUTO_PINS)) {
           const parsed = parseClaims(s.suggestedPin);
           for (const claim of parsed) {
@@ -1665,12 +1687,14 @@ function isWorkspaceRootSync(repoRoot: string): boolean {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
       workspaces?: string[] | { packages?: string[] };
     };
-    if (Array.isArray(pkg.workspaces) && pkg.workspaces.length > 0) return true;
+    const ws = pkg.workspaces;
+    if (Array.isArray(ws) && ws.length > 0) return true;
     if (
-      pkg.workspaces &&
-      typeof pkg.workspaces === "object" &&
-      Array.isArray(pkg.workspaces.packages) &&
-      pkg.workspaces.packages.length > 0
+      ws &&
+      !Array.isArray(ws) &&
+      typeof ws === "object" &&
+      Array.isArray(ws.packages) &&
+      ws.packages.length > 0
     ) {
       return true;
     }
@@ -2417,6 +2441,76 @@ program
 // signup, no API key required. Designed to be the "first value in
 // 30 seconds" command for users evaluating Pinned.
 //
+// ---------- backtest (INTERNAL — not in --help) ----------
+// "What would Pinned have caught if installed at commit N and replayed
+// to HEAD?" Replays a target repo's git history, parses claims from
+// commit messages (and optionally diff-derived in extended mode),
+// generates pin tests, then checks out historical commits in a worktree
+// and runs the pin tests at each. Catches = green → red transitions.
+//
+// This is calibration only — hidden from the main --help output. Used
+// to answer the "does Pinned actually catch real regressions?" question
+// before launch.
+program
+  .command("backtest", { hidden: true })
+  .description("(internal) Replay a target repo's git history against generated pins to measure real catches.")
+  .requiredOption("--repo <path>", "Absolute path to the target git repo.")
+  .option("--from <commit>", "Start commit (inclusive). Default: full history.")
+  .option("--to <commit>", "End commit. Default: HEAD.", "HEAD")
+  .option("--mode <product|extended>", "product = PR/commit claims only (matches shipping product). extended = + diff-derived inference.", "product")
+  .option("--max-replay <n>", "Max forward-commits to replay per pin.", "50")
+  .option("--vitest-timeout <ms>", "Per-commit vitest timeout (ms).", "30000")
+  .option("--json", "Emit the full backtest report as JSON.")
+  .option("--quiet", "Suppress the pinned banner header.")
+  .action(async (opts: {
+    repo: string;
+    from?: string;
+    to: string;
+    mode: string;
+    maxReplay: string;
+    vitestTimeout: string;
+    json?: boolean;
+    quiet?: boolean;
+  }) => {
+    if (!opts.quiet) printBanner();
+    if (opts.mode !== "product" && opts.mode !== "extended") {
+      err(`✗ Invalid --mode '${opts.mode}'. Use: product | extended\n`);
+      process.exit(1);
+    }
+    const { runBacktest } = await import("./backtest.js");
+    const report = await runBacktest({
+      repoPath: resolve(opts.repo),
+      fromCommit: opts.from,
+      toCommit: opts.to,
+      mode: opts.mode as "product" | "extended",
+      maxReplayCommits: parseInt(opts.maxReplay, 10),
+      vitestTimeoutMs: parseInt(opts.vitestTimeout, 10),
+    });
+    if (opts.json) {
+      out(JSON.stringify(report, null, 2));
+      return;
+    }
+    out("");
+    out(`◆ pinned backtest — ${report.repo}`);
+    out(`  mode:           ${report.mode}`);
+    out(`  commits walked: ${report.commitsScanned}`);
+    out(`  pins generated: ${report.pinsGenerated}`);
+    out(`  by template:`);
+    for (const [t, n] of Object.entries(report.pinsByTemplate)) {
+      out(`    ${t.padEnd(22)} ${n}`);
+    }
+    out(`  not-testable (HTTP, no preview): ${report.notTestableHttp}`);
+    out(`  broken-at-birth (claim didn't match code at install): ${report.brokenAtBirth}`);
+    out(`  ★ catches:      ${report.catches}`);
+    if (report.catches > 0) {
+      out(`  catches by template:`);
+      for (const [t, n] of Object.entries(report.catchesByTemplate)) {
+        out(`    ${t.padEnd(22)} ${n}`);
+      }
+    }
+    out(`  duration:       ${(report.durationMs / 1000).toFixed(1)}s`);
+  });
+
 // Exit codes:
 //   0 — PASS:   no unprotected surfaces touched, no pins failing
 //   1 — REVIEW: unprotected risk surfaces detected OR pins skipped
@@ -4682,6 +4776,8 @@ function describeClaim(c: Claim): string {
       return `cli-creates    \`${c.route}\`  →  creates ${c.filePath}`;
     case "cli-flag-supported":
       return `cli-flag       \`${c.route}\`  →  supports ${c.flag}`;
+    case "cli-json-shape":
+      return `cli-json       \`${c.route}\`  →  JSON has keys: ${c.keys.join(", ")}`;
     case "library-returns":
       return `library        ${c.functionName} in ${c.modulePath}  →  returns ${JSON.stringify(c.expected)}`;
   }

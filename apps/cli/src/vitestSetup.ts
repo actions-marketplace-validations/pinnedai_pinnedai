@@ -104,12 +104,14 @@ function isWorkspaceRoot(repoRoot: string): boolean {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
       workspaces?: string[] | { packages?: string[] };
     };
-    if (Array.isArray(pkg.workspaces) && pkg.workspaces.length > 0) return true;
+    const ws = pkg.workspaces;
+    if (Array.isArray(ws) && ws.length > 0) return true;
     if (
-      pkg.workspaces &&
-      typeof pkg.workspaces === "object" &&
-      Array.isArray(pkg.workspaces.packages) &&
-      pkg.workspaces.packages.length > 0
+      ws &&
+      !Array.isArray(ws) &&
+      typeof ws === "object" &&
+      Array.isArray(ws.packages) &&
+      ws.packages.length > 0
     ) {
       return true;
     }

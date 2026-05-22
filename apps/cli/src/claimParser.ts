@@ -65,6 +65,23 @@ export type CliCreatesFileClaim = {
   raw: string;
 };
 
+// CLI claim: "`pinned status --json` returns JSON with `activePins`, `verifiedStreak`."
+// Generated test spawns the command, parses stdout as JSON, asserts the
+// listed keys exist on the parsed object. Stronger contract than
+// cli-output-contains: catches JSON validity AND schema drift in one
+// shot. Highest-leverage CLI pin for any binary that ships a --json
+// flag for machine-consumed output (Pinned itself, gh CLI, etc.).
+//
+// Why "shape" and not "exact match": the value of any one key may
+// legitimately change between runs (counts, timestamps, IDs), but the
+// SHAPE — which keys are present — is part of the public contract.
+export type CliJsonShapeClaim = {
+  template: "cli-json-shape";
+  route: string; // CLI invocation (must include --json or equivalent)
+  keys: string[]; // required top-level keys on the parsed JSON object
+  raw: string;
+};
+
 // CLI claim: "`pinned check` supports `--json` flag."
 // Generated test runs `<cmd> --help` and asserts the flag appears in
 // stdout. Cheap contract verification — the flag is documented and
@@ -176,6 +193,7 @@ export type Claim =
   | CliOutputContainsClaim
   | CliExitsZeroClaim
   | CliCreatesFileClaim
+  | CliJsonShapeClaim
   | CliFlagSupportedClaim
   | LibraryReturnsClaim;
 
@@ -455,6 +473,19 @@ const CLI_EXITS_ZERO = new RegExp(
 // "Running `pinned init` produces `tests/pinned/.gitkeep`."
 const CLI_CREATES_FILE = new RegExp(
   String.raw`\x60(?<command>[^\x60\r\n]{1,200})\x60\s+(?:that\s+|which\s+|should\s+)?(?:creates?|writes?|produces?|generates?)\s+\x60(?<filePath>[^\x60\r\n]{1,200})\x60`,
+  "gi"
+);
+
+// ---------- cli-json-shape ----------
+// "`pinned status --json` returns JSON with `activePins`, `verifiedStreak`."
+// "`pinned doctor --json` outputs JSON containing `verdict`, `errors`."
+// "`gh pr list --json` returns valid JSON with `number`, `title`, `body`."
+//
+// Two captures: <command> (backtick-bounded CLI invocation),
+// <keys> (backtick-bounded comma-separated identifier list).
+// Bounded {1,400} on the keys list to prevent ReDoS on adversarial input.
+const CLI_JSON_SHAPE = new RegExp(
+  String.raw`\x60(?<command>[^\x60\r\n]{1,200})\x60\s+(?:returns?|outputs?|prints?|emits?)\s+(?:(?:valid\s+)?JSON\s+)?(?:with|containing)\s+(?<keys>\x60[^\x60\r\n]{1,400}\x60(?:\s*,\s*\x60[^\x60\r\n]{1,400}\x60)*)`,
   "gi"
 );
 
@@ -824,6 +855,35 @@ export function parseClaims(rawBody: string): Claim[] {
     push(c, `${c.template}:${c.route}:${c.filePath}`);
   }
 
+  for (const m of body.matchAll(CLI_JSON_SHAPE)) {
+    const g = m.groups!;
+    const command = g.command.trim();
+    if (!isCliShape(command)) continue;
+    // Command must invoke --json (or equivalent). This filter rejects
+    // false positives like "`pinned status` outputs JSON with foo" where
+    // the command doesn't actually have a JSON output mode.
+    if (!/--json\b|--output[\s=]+json\b|-j\b/.test(command)) continue;
+    // Extract individual backtick-bounded keys from the keys group.
+    const keys: string[] = [];
+    const KEY_TOKEN = /\x60([^\x60\r\n]{1,400})\x60/g;
+    for (const km of g.keys.matchAll(KEY_TOKEN)) {
+      const key = km[1].trim();
+      // Each key must be a JS-identifier-shaped string. Rejects nested
+      // JSON paths like `data.foo` (too brittle to assert on) and
+      // anything with spaces (looks like a substring, not a key).
+      if (!/^[A-Za-z_][\w]{0,63}$/.test(key)) continue;
+      keys.push(key);
+    }
+    if (keys.length === 0) continue;
+    const c: CliJsonShapeClaim = {
+      template: "cli-json-shape",
+      route: command,
+      keys,
+      raw: m[0],
+    };
+    push(c, `${c.template}:${c.route}:${keys.sort().join(",")}`);
+  }
+
   for (const m of body.matchAll(CLI_FLAG_FORWARD)) {
     const g = m.groups!;
     const command = g.command.trim();
@@ -1069,6 +1129,16 @@ export function describeClaimForUser(c: Claim): ClaimDisplay {
         check: `Runs \`${c.route}\` in a temporary directory; asserts \`${c.filePath}\` exists afterward.`,
       };
     }
+    case "cli-json-shape": {
+      const label = truncateForTitle(shortCommandLabel(c.route));
+      const labelFull = shortCommandLabel(c.route);
+      const keys = c.keys.join(", ");
+      return {
+        title: `\`${label}\` returns JSON with ${c.keys.length} key${c.keys.length === 1 ? "" : "s"}`,
+        promise: `\`${labelFull}\` outputs valid JSON containing keys: ${keys}.`,
+        check: `Runs \`${c.route}\`, parses stdout as JSON, asserts these keys exist on the top-level object: ${keys}.`,
+      };
+    }
     case "cli-flag-supported": {
       const label = truncateForTitle(shortCommandLabel(c.route));
       const labelFull = shortCommandLabel(c.route);
@@ -1175,6 +1245,8 @@ export function badCaseForClaim(claim: Claim): string {
       return `running \`${claim.route}\` exited with non-zero status (command broken)`;
     case "cli-creates-file":
       return `running \`${claim.route}\` did not create ${claim.filePath} (side-effect lost)`;
+    case "cli-json-shape":
+      return `\`${claim.route}\` did not return valid JSON containing all required keys (\`${claim.keys.join("`, `")}\` — shape contract broken)`;
     case "cli-flag-supported":
       return `\`${claim.route} --help\` did not list \`${claim.flag}\` flag (option removed)`;
     case "library-returns":
@@ -1232,6 +1304,7 @@ export function claimRoute(c: Claim): string | null {
     case "cli-output-contains":
     case "cli-exits-zero":
     case "cli-creates-file":
+    case "cli-json-shape":
     case "cli-flag-supported":
       return c.route;
     case "library-returns":
@@ -1306,6 +1379,8 @@ export function claimKey(c: Claim): string {
       return `cli-exits-zero:${c.route}`;
     case "cli-creates-file":
       return `cli-creates-file:${c.route}:${c.filePath}`;
+    case "cli-json-shape":
+      return `cli-json-shape:${c.route}:${[...c.keys].sort().join(",")}`;
     case "cli-flag-supported":
       return `cli-flag-supported:${c.route}:${c.flag}`;
     case "library-returns":

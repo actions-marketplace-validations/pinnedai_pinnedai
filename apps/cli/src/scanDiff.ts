@@ -13,6 +13,8 @@
 // Architecturally: pure detection, no fs/git operations. The CLI
 // wrapper does the git plumbing; this module is testable in isolation.
 
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { join, basename } from "node:path";
 import type { Claim } from "./claimParser.js";
 import { claimRoute } from "./claimParser.js";
 // claimKey is intentionally not imported — see isAlreadyCovered notes
@@ -43,7 +45,13 @@ export type ChangedFile = {
 export type Suggestion = {
   reason: string;
   files: string[];
-  template: "auth-required" | "rate-limit" | "idempotent" | "env-required";
+  template:
+    | "auth-required"
+    | "rate-limit"
+    | "idempotent"
+    | "env-required"
+    | "cli-exits-zero"
+    | "library-returns";
   route?: string;
   suggestedPin: string;
 };
@@ -184,6 +192,136 @@ export function isTestPath(path: string): boolean {
   return false;
 }
 
+// Detect CLI / library pins from package.json. These pins run AGAINST
+// THE FILESYSTEM AT THE CURRENT COMMIT — they don't need PREVIEW_URL,
+// don't need a deploy, don't need network. Highest day-zero leverage
+// for users without preview infrastructure.
+//
+// Heuristic, conservative:
+//   - Every `bin` entry → cli-exits-zero pin asserting the binary
+//     exits 0 on `--help`. Safe assumption: any CLI with a --help
+//     flag (which almost every Commander-based CLI does) returns 0.
+//   - Every exported NAMED function from the `main` entry → no
+//     auto-pin (we can't safely infer the expected return). Surface
+//     as a candidate the user can pin manually via `pinned protect`.
+//
+// Reads package.json directly (not via the path-based RULES table)
+// because the signal is content, not changed-file shape. Callers in
+// monorepo roots can pass workspaceRoot for the entry point and we'll
+// recurse into apps/* / packages/* to find their package.json files
+// too. Capped at WORKSPACE_FANOUT_LIMIT to keep startup fast.
+export type CliLibraryPin = {
+  template: "cli-exits-zero" | "library-returns-candidate";
+  // For cli-exits-zero: the binary name as customers invoke it.
+  // For library-returns-candidate: the exported function name.
+  identifier: string;
+  // Resolved local path to the executable / module file.
+  // Relative to repoPath. Used as a sanity check that the entry
+  // actually exists on disk.
+  resolvedPath: string;
+  // Path to the package.json declaring this entry. Useful for telling
+  // the user WHICH workspace package the pin guards.
+  sourcePackageJson: string;
+  // Generated pin claim text — passes through parseClaims for
+  // round-trip validation in tests.
+  suggestedPin: string;
+};
+
+const WORKSPACE_FANOUT_LIMIT = 50;
+
+export function detectCliLibraryPins(repoPath: string): CliLibraryPin[] {
+  const found: CliLibraryPin[] = [];
+  const visitedPkgs = new Set<string>();
+  const queue: string[] = [repoPath];
+
+  while (queue.length > 0 && visitedPkgs.size < WORKSPACE_FANOUT_LIMIT) {
+    const dir = queue.shift()!;
+    const pkgPath = join(dir, "package.json");
+    if (visitedPkgs.has(pkgPath)) continue;
+    visitedPkgs.add(pkgPath);
+    if (!existsSync(pkgPath)) continue;
+    let pkg: Record<string, unknown>;
+    try {
+      pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+    } catch {
+      continue;
+    }
+    // bin entries
+    const bin = pkg.bin;
+    if (typeof bin === "string") {
+      collectBin(dir, pkgPath, basename(dir), bin, found);
+    } else if (bin && typeof bin === "object") {
+      for (const [name, relPath] of Object.entries(bin as Record<string, unknown>)) {
+        if (typeof relPath === "string") {
+          collectBin(dir, pkgPath, name, relPath, found);
+        }
+      }
+    }
+    // Recurse into workspaces — pnpm/yarn workspaces and the
+    // workspaces field of npm. Bounded fanout.
+    const wsField = pkg.workspaces;
+    const workspaceGlobs: string[] = Array.isArray(wsField)
+      ? wsField
+      : wsField && typeof wsField === "object" && Array.isArray((wsField as { packages?: unknown }).packages)
+        ? ((wsField as { packages: string[] }).packages)
+        : [];
+    for (const glob of workspaceGlobs) {
+      // Only support simple `apps/*`, `packages/*`, `<dir>` shapes.
+      const m = /^([^/*]+)\/\*$/.exec(glob);
+      if (m) {
+        const parent = join(dir, m[1]);
+        if (existsSync(parent)) {
+          for (const child of readdirSyncSafe(parent)) {
+            const childDir = join(parent, child);
+            queue.push(childDir);
+          }
+        }
+      } else if (!glob.includes("*")) {
+        queue.push(join(dir, glob));
+      }
+      // Skip glob patterns we don't support — won't crash, just won't fan out.
+    }
+  }
+
+  return found;
+}
+
+function collectBin(
+  pkgDir: string,
+  pkgPath: string,
+  binName: string,
+  relPath: string,
+  out: CliLibraryPin[]
+): void {
+  // Guardrails on bin name — must be safe identifier (no shell injection,
+  // no path traversal). Most real CLIs have alphanumeric+dash names.
+  if (!/^[a-zA-Z][\w.-]{0,63}$/.test(binName)) return;
+  // Guardrails on resolved path — must be a real file inside the package
+  // dir, not outside (defense against malicious bin: "/etc/passwd").
+  const resolved = join(pkgDir, relPath);
+  if (!resolved.startsWith(pkgDir + "/") && resolved !== pkgDir) return;
+  if (!existsSync(resolved)) return;
+  out.push({
+    template: "cli-exits-zero",
+    identifier: binName,
+    resolvedPath: relPath,
+    sourcePackageJson: pkgPath,
+    // Generate as a pin the parser can re-extract. Uses the canonical
+    // form: `<cmd> --help` exits 0 / cleanly. --help is the safest
+    // universal invocation — even a CLI in a broken state will usually
+    // print help and exit 0.
+    suggestedPin: `\`${binName} --help\` exits 0.`,
+  });
+}
+
+function readdirSyncSafe(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
 // Order matters — more specific rules first.
 const RULES: RiskRule[] = [
   // Next.js App Router: new route file
@@ -191,13 +329,13 @@ const RULES: RiskRule[] = [
     id: "next-app-route-added",
     match: (f) =>
       f.status === "added" &&
-      /^(?:src\/)?app\/api\/.+\/route\.(?:ts|tsx|js|jsx)$/.test(f.path) &&
+      /(?:^|\/)(?:src\/)?app\/api\/.+\/route\.(?:ts|tsx|js|jsx)$/.test(f.path) &&
       !isTestPath(f.path) &&
       !isAuthEndpoint(f.path) &&
       !isLikelyPublicEndpoint(f.path),
     build: (f) => {
       const route = "/api/" + f.path
-        .replace(/^(?:src\/)?app\/api\//, "")
+        .replace(/^.*?(?:^|\/)(?:src\/)?app\/api\//, "")
         .replace(/\/route\.(?:ts|tsx|js|jsx)$/, "");
       return {
         template: "auth-required",
@@ -212,13 +350,13 @@ const RULES: RiskRule[] = [
     id: "next-pages-route-added",
     match: (f) =>
       f.status === "added" &&
-      /^(?:src\/)?pages\/api\/.+\.(?:ts|tsx|js|jsx)$/.test(f.path) &&
+      /(?:^|\/)(?:src\/)?pages\/api\/.+\.(?:ts|tsx|js|jsx)$/.test(f.path) &&
       !isTestPath(f.path) &&
       !isAuthEndpoint(f.path) &&
       !isLikelyPublicEndpoint(f.path),
     build: (f) => {
       const route = "/api/" + f.path
-        .replace(/^(?:src\/)?pages\/api\//, "")
+        .replace(/^.*?(?:^|\/)(?:src\/)?pages\/api\//, "")
         .replace(/\.(?:ts|tsx|js|jsx)$/, "");
       return {
         template: "auth-required",
@@ -233,13 +371,13 @@ const RULES: RiskRule[] = [
     id: "express-routes-added",
     match: (f) =>
       f.status === "added" &&
-      /^(?:src\/)?routes\/.+\.(?:ts|tsx|js|jsx)$/.test(f.path) &&
+      /(?:^|\/)(?:src\/)?routes\/.+\.(?:ts|tsx|js|jsx)$/.test(f.path) &&
       !isTestPath(f.path) &&
       !isAuthEndpoint(f.path) &&
       !isLikelyPublicEndpoint(f.path),
     build: (f) => {
       const name = f.path
-        .replace(/^(?:src\/)?routes\//, "")
+        .replace(/^.*?(?:^|\/)(?:src\/)?routes\//, "")
         .replace(/\.(?:ts|tsx|js|jsx)$/, "")
         .replace(/\/index$/, "")
         .replace(/[._-]/g, "/");
@@ -256,14 +394,20 @@ const RULES: RiskRule[] = [
     id: "handlers-route-added",
     match: (f) =>
       f.status === "added" &&
-      /^(?:src\/)?(?:handlers|controllers|api)\/.+\.(?:ts|js)$/.test(f.path) &&
+      // Match handlers/, controllers/, or top-level api/ (Vercel-style)
+      // but NOT app/api/* or pages/api/* — those are handled by the
+      // next-app-route-added / next-pages-route-added rules and would
+      // produce duplicate pins.
+      (/(?:^|\/)(?:src\/)?(?:handlers|controllers)\/.+\.(?:ts|js)$/.test(f.path) ||
+        /^(?:src\/)?api\/.+\.(?:ts|js)$/.test(f.path)) &&
       !/webhook/i.test(f.path) &&
+      !/(?:^|\/)(?:app|pages)\/api\//.test(f.path) &&
       !isTestPath(f.path) &&
       !isAuthEndpoint(f.path) &&
       !isLikelyPublicEndpoint(f.path),
     build: (f) => {
       const name = f.path
-        .replace(/^(?:src\/)?(?:handlers|controllers|api)\//, "")
+        .replace(/^.*?(?:^|\/)(?:src\/)?(?:handlers|controllers|api)\//, "")
         .replace(/\.(?:ts|js)$/, "");
       return {
         template: "auth-required",
@@ -683,6 +827,21 @@ export function scanDiffFull(input: ScanInput): ScanResult {
       (p) => p.status === "active" && claimRoute(p.claim) === route
     );
     if (pins.length > 0) coverage.push({ file: f.path, pins });
+  }
+
+  // Second-pass filter: apply isLikelyPublicEndpoint + isAuthEndpoint
+  // against the SYNTHESIZED route too, not just the file path. The
+  // file-path check catches `app/api/auth/[...nextauth]/route.ts` —
+  // but route synthesis can produce a public-endpoint route from a
+  // path that doesn't itself look public (e.g. `apps/api/src/routes/
+  // webhook.ts` → `/api/webhook`, which is a webhook receiver and
+  // shouldn't get an auth-required pin).
+  for (const [key, sug] of [...fileSuggestions]) {
+    if (sug.route) {
+      if (isAuthEndpoint(sug.route) || isLikelyPublicEndpoint(sug.route)) {
+        fileSuggestions.delete(key);
+      }
+    }
   }
 
   // Drop suggestions whose suggestedPin is empty — those are RISK HINTS

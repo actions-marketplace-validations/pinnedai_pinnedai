@@ -313,7 +313,7 @@ npx pinnedai doctor
 | `pinned hook-failure` | Chat injection content — empty when green, warning when a pin is failing |
 | `pinned pr-comment` | Short PR-comment markdown (quiet-success / claims-added / risky / broken) |
 
-All commands work locally — they only call the hosted LLM when running inside GitHub Actions (keyless via OIDC, no API key required).
+All commands work locally — they only call the hosted LLM when running inside GitHub Actions. Authentication is keyless: GitHub Actions issues a short-lived OpenID Connect (OIDC) token that proves which repo is calling us. You never sign up, never set an API key.
 
 ---
 
@@ -332,9 +332,9 @@ Free tier needs only `npx pinnedai init`. Public-repo LLM caps match CodeRabbit'
 
 ---
 
-## BYOK (Pro+, optional)
+## BYOK — Bring Your Own Key (Pro+, optional)
 
-If compliance requires that PR descriptions never transit our infrastructure, opt in with:
+By default the hosted Worker calls OpenAI on your behalf for LLM-assisted claim extraction. If compliance requires that PR descriptions never transit our infrastructure, **BYOK** ("Bring Your Own Key") lets the CLI call Anthropic or OpenAI **directly** using a key you provide. Opt in with:
 
 ```yaml
 # .github/workflows/pinned.yml

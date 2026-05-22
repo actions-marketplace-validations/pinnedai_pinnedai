@@ -22,6 +22,7 @@ export type {
   CliOutputContainsClaim,
   CliExitsZeroClaim,
   CliCreatesFileClaim,
+  CliJsonShapeClaim,
   CliFlagSupportedClaim,
   LibraryReturnsClaim,
 } from "./claimParser.js";
@@ -34,6 +35,7 @@ export { generateReturnsStatusTest } from "./templates/returnsStatus.js";
 export { generateCliOutputContainsTest } from "./templates/cliOutputContains.js";
 export { generateCliExitsZeroTest } from "./templates/cliExitsZero.js";
 export { generateCliCreatesFileTest } from "./templates/cliCreatesFile.js";
+export { generateCliJsonShapeTest } from "./templates/cliJsonShape.js";
 export { generateCliFlagSupportedTest } from "./templates/cliFlagSupported.js";
 export { generateLibraryReturnsTest } from "./templates/libraryReturns.js";
 export type { GeneratedTest, GenerateOpts } from "./templates/rateLimit.js";
@@ -49,6 +51,7 @@ import { generateReturnsStatusTest } from "./templates/returnsStatus.js";
 import { generateCliOutputContainsTest } from "./templates/cliOutputContains.js";
 import { generateCliExitsZeroTest } from "./templates/cliExitsZero.js";
 import { generateCliCreatesFileTest } from "./templates/cliCreatesFile.js";
+import { generateCliJsonShapeTest } from "./templates/cliJsonShape.js";
 import { generateCliFlagSupportedTest } from "./templates/cliFlagSupported.js";
 import { generateLibraryReturnsTest } from "./templates/libraryReturns.js";
 
@@ -74,6 +77,8 @@ export function generateTest(claim: Claim, opts: GenerateOpts): GeneratedTest {
       return generateCliExitsZeroTest(claim, opts);
     case "cli-creates-file":
       return generateCliCreatesFileTest(claim, opts);
+    case "cli-json-shape":
+      return generateCliJsonShapeTest(claim, opts);
     case "cli-flag-supported":
       return generateCliFlagSupportedTest(claim, opts);
     case "library-returns":
