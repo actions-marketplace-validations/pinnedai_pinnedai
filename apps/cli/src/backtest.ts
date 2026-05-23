@@ -154,6 +154,47 @@ export async function runBacktest(opts: BacktestOptions): Promise<BacktestReport
             claimsForThisCommit = claimsForThisCommit.concat(parsed);
           }
         }
+        // Plus the non-HTTP detectors that emit pins from filesystem
+        // state directly. These produce the highest-signal backtest
+        // catches because they assert against concrete content that
+        // can change in a single commit. Checkout the worktree to
+        // commit-N first so the detectors see THAT commit's state,
+        // not HEAD's.
+        gitWorktreeCheckout(worktreePath, c.sha);
+        const { detectCliLibraryPins, detectLockfilePins, detectConfigInvariantPins, detectPackageExportsPins } = await import("./scanDiff.js");
+        for (const cli of detectCliLibraryPins(worktreePath)) {
+          if (cli.template !== "cli-exits-zero") continue;
+          claimsForThisCommit.push({
+            template: "cli-exits-zero",
+            route: `${cli.identifier} --help`,
+            raw: cli.suggestedPin,
+          });
+        }
+        for (const lock of detectLockfilePins(worktreePath)) {
+          claimsForThisCommit.push({
+            template: "lockfile-integrity",
+            lockfilePath: lock.lockfilePath,
+            expectedSha256: lock.expectedSha256,
+            raw: lock.suggestedPin,
+          });
+        }
+        for (const cfg of detectConfigInvariantPins(worktreePath)) {
+          claimsForThisCommit.push({
+            template: "config-invariant",
+            configPath: cfg.configPath,
+            expected: cfg.expected,
+            label: cfg.label,
+            raw: cfg.suggestedPin,
+          });
+        }
+        for (const exp of detectPackageExportsPins(worktreePath)) {
+          claimsForThisCommit.push({
+            template: "package-exports-exist",
+            modulePath: exp.modulePath,
+            exports: exp.exports,
+            raw: exp.suggestedPin,
+          });
+        }
       }
 
       // Dedup within this commit

@@ -52,7 +52,8 @@ export type Suggestion = {
     | "idempotent"
     | "env-required"
     | "cli-exits-zero"
-    | "library-returns";
+    | "library-returns"
+    | "returns-status";
   route?: string;
   suggestedPin: string;
 };
@@ -248,6 +249,139 @@ export function detectLockfilePins(repoPath: string): LockfilePin[] {
   return found;
 }
 
+// Auto-detect returns-status pins. Scans route handler files for
+// validation-library calls (Zod, Yup, Joi, custom). Each detected
+// validation surface emits a "POST <route> returns 400 on bad body"
+// pin candidate. Catches AI agents that "simplify" validation —
+// GPT-flagged as one of the highest-value non-HTTP-fixture catches.
+//
+// Conservative match patterns (real false-positive risk if too greedy):
+//   - `z.object(...).parse(...)`        Zod sync parse
+//   - `z.object(...).parseAsync(...)`   Zod async parse
+//   - `await schema.parse(`             Zod-style on a named schema
+//   - `.safeParse(`                     Zod safeParse (with manual 400 path)
+//   - `yup.object(`                     Yup schema definition
+//
+// The pin will only run if PREVIEW_URL is set (or local-dev-mode
+// kicks in). At install time, day-zero verify reports "not verified"
+// when no URL is configured.
+export type ReturnsStatusPin = {
+  template: "returns-status";
+  route: string;
+  method: "POST" | "PUT" | "PATCH";
+  status: number;
+  suggestedPin: string;
+};
+
+const VALIDATION_PATTERNS = [
+  /\bz\.object\s*\(/,                          // Zod object schema
+  /\.parseAsync\s*\(/,                          // Zod async parse
+  /\.safeParse(?:Async)?\s*\(/,                 // Zod safeParse
+  /\byup\.object\s*\(/,                         // Yup
+  /\b(?:from\s+|import\s+).*['"]joi['"]/,       // Joi import
+  /\bvalidate\s*\([^)]*req\.body/,              // generic validate(req.body, ...)
+  /\bschema\.parse\s*\(/,                        // named schema.parse()
+];
+
+export function detectReturnsStatusPins(repoPath: string): ReturnsStatusPin[] {
+  const out: ReturnsStatusPin[] = [];
+  // Walk route-shaped files. We use the SAME route detection regex
+  // as next-app-route-added / express-routes-added etc., but only
+  // examine the FILE CONTENT — we're looking for validation calls
+  // INSIDE the handler.
+  const candidates = walkRepoFiles(repoPath, {
+    extensions: [".ts", ".tsx", ".js"],
+    maxFiles: 500,
+  });
+  const seen = new Set<string>();
+  for (const relPath of candidates) {
+    // Only files that look like route handlers
+    if (
+      !/(?:^|\/)(?:src\/)?app\/api\/.+\/route\.(?:ts|tsx|js|jsx)$/.test(relPath) &&
+      !/(?:^|\/)(?:src\/)?pages\/api\/.+\.(?:ts|tsx|js|jsx)$/.test(relPath) &&
+      !/(?:^|\/)(?:src\/)?routes\/.+\.(?:ts|tsx|js|jsx)$/.test(relPath)
+    ) {
+      continue;
+    }
+    if (isTestPath(relPath)) continue;
+    // NB: do NOT skip isAuthEndpoint / isLikelyPublicEndpoint here.
+    // The auth-required template excludes those because asserting
+    // "401 without auth" on /api/signup is wrong. But for
+    // returns-status, input validation is EXACTLY what we want to
+    // protect on signup/login/forgot-password — those are the routes
+    // that validate user-provided email / password / reset tokens.
+    let content: string;
+    try {
+      content = readFileSync(join(repoPath, relPath), "utf8");
+    } catch {
+      continue;
+    }
+    // Skip GET-only routes — validation is for write methods.
+    const hasWriteMethod =
+      /\b(POST|PUT|PATCH)\b/.test(content) ||
+      /\bexport\s+(?:async\s+)?function\s+(?:POST|PUT|PATCH)\b/.test(content) ||
+      /router\.(?:post|put|patch)\(/i.test(content);
+    if (!hasWriteMethod) continue;
+    // Must have at least one validation pattern
+    const hasValidation = VALIDATION_PATTERNS.some((re) => re.test(content));
+    if (!hasValidation) continue;
+    const route = deriveRouteFromPath(relPath);
+    if (!route) continue;
+    // Pick the strongest method present
+    const method: "POST" | "PUT" | "PATCH" = /\bPOST\b|router\.post/i.test(content)
+      ? "POST"
+      : /\bPATCH\b|router\.patch/i.test(content)
+        ? "PATCH"
+        : "PUT";
+    const key = `${method}:${route}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      template: "returns-status",
+      route,
+      method,
+      status: 400,
+      suggestedPin: `${method} ${route} returns 400 on missing body.`,
+    });
+  }
+  return out;
+}
+
+// Recursively walk repoPath up to maxFiles, returning relative paths
+// matching the file extensions. Skips node_modules / dist / build /
+// .git. Used by detectors that need to inspect file content.
+function walkRepoFiles(
+  repoPath: string,
+  opts: { extensions: string[]; maxFiles: number }
+): string[] {
+  const out: string[] = [];
+  const skip = new Set(["node_modules", ".git", "dist", "build", ".next", "coverage", ".turbo"]);
+  function walk(rel: string): void {
+    if (out.length >= opts.maxFiles) return;
+    const abs = join(repoPath, rel);
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(abs, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (out.length >= opts.maxFiles) return;
+      if (skip.has(e.name)) continue;
+      const childRel = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        walk(childRel);
+      } else if (e.isFile()) {
+        if (opts.extensions.some((ext) => e.name.endsWith(ext))) {
+          out.push(childRel);
+        }
+      }
+    }
+  }
+  walk("");
+  return out;
+}
+
 // Auto-detect package-exports-exist pins from package.json's `main` /
 // `exports` entry. Conservative: only emits when we can identify both
 // a real entry file AND at least one named export via regex scan.
@@ -382,6 +516,58 @@ function guessSourcePathsFor(entryPath: string): string[] {
     candidates.add(stripped.replace(/\.js$/, ext));
   }
   return [...candidates];
+}
+
+// Auto-detect secret-not-public pin. Emits ONE pin when the repo
+// uses a framework with a public env prefix (NEXT_PUBLIC_, VITE_,
+// PUBLIC_, REACT_APP_, EXPO_PUBLIC_). Conservative: skips repos
+// without a recognized public-prefix framework.
+export type SecretNotPublicPin = {
+  template: "secret-not-public";
+  publicPrefix: string;
+  secretMarkers: string[];
+  suggestedPin: string;
+};
+
+const FRAMEWORK_TO_PUBLIC_PREFIX: { dep: string; prefix: string }[] = [
+  { dep: "next", prefix: "NEXT_PUBLIC_" },
+  { dep: "vite", prefix: "VITE_" },
+  { dep: "@vitejs/plugin-react", prefix: "VITE_" },
+  { dep: "react-scripts", prefix: "REACT_APP_" },
+  { dep: "@sveltejs/kit", prefix: "PUBLIC_" },
+  { dep: "expo", prefix: "EXPO_PUBLIC_" },
+  { dep: "expo-router", prefix: "EXPO_PUBLIC_" },
+];
+const DEFAULT_SECRET_MARKERS = ["SECRET", "TOKEN", "PRIVATE_KEY", "API_KEY"];
+
+export function detectSecretNotPublicPins(repoPath: string): SecretNotPublicPin[] {
+  const pkgPath = join(repoPath, "package.json");
+  if (!existsSync(pkgPath)) return [];
+  let pkg: Record<string, unknown>;
+  try {
+    pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+  } catch {
+    return [];
+  }
+  const allDeps = {
+    ...(pkg.dependencies as Record<string, unknown> | undefined),
+    ...(pkg.devDependencies as Record<string, unknown> | undefined),
+    ...(pkg.peerDependencies as Record<string, unknown> | undefined),
+  };
+  const seenPrefixes = new Set<string>();
+  const out: SecretNotPublicPin[] = [];
+  for (const { dep, prefix } of FRAMEWORK_TO_PUBLIC_PREFIX) {
+    if (allDeps[dep] && !seenPrefixes.has(prefix)) {
+      seenPrefixes.add(prefix);
+      out.push({
+        template: "secret-not-public",
+        publicPrefix: prefix,
+        secretMarkers: DEFAULT_SECRET_MARKERS,
+        suggestedPin: `no ${prefix}* env var ever contains a secret (${DEFAULT_SECRET_MARKERS.join("/")})`,
+      });
+    }
+  }
+  return out;
 }
 
 // Well-known config invariants the detector emits as auto-pins at

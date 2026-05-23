@@ -199,6 +199,9 @@ function preflight(claim: Claim, cwd: string): string | null {
       }
       return null;
     }
+    case "secret-not-public":
+      // Repo-wide scan; nothing to pre-validate.
+      return null;
   }
 }
 

@@ -232,6 +232,14 @@ function ClaimChip({ claim }: { claim: Claim }) {
           <span className="chip-meta">{claim.exports.length} symbol{claim.exports.length === 1 ? "" : "s"}</span>
         </span>
       );
+    case "secret-not-public":
+      return (
+        <span className="chip">
+          <span className="chip-tag">secret-guard</span>
+          <span className="chip-route">{claim.publicPrefix}*</span>
+          <span className="chip-meta">no {claim.secretMarkers.join("/")}</span>
+        </span>
+      );
   }
 }
 
@@ -340,6 +348,12 @@ function failureBlock(claim: Claim, filename: string): string {
     case "package-exports-exist":
       return `${head} > pinned: package-exports-exist ${claim.modulePath}
   AssertionError: missing export(s) from [${claim.exports.join(", ")}] — public API symbol renamed/deleted
+
+  ${back}
+`;
+    case "secret-not-public":
+      return `${head} > pinned: secret-not-public ${claim.publicPrefix}*
+  AssertionError: ${claim.publicPrefix}*<SECRET> env var detected — would inline a server secret into the client bundle
 
   ${back}
 `;

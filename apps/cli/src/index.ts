@@ -28,6 +28,7 @@ export type {
   ConfigInvariantClaim,
   LockfileIntegrityClaim,
   PackageExportsClaim,
+  SecretNotPublicClaim,
 } from "./claimParser.js";
 export { generateRateLimitTest } from "./templates/rateLimit.js";
 export { generateAuthRequiredTest } from "./templates/authRequired.js";
@@ -44,6 +45,7 @@ export { generateLibraryReturnsTest } from "./templates/libraryReturns.js";
 export { generateLockfileIntegrityTest } from "./templates/lockfileIntegrity.js";
 export { generateConfigInvariantTest } from "./templates/configInvariant.js";
 export { generatePackageExportsExistTest } from "./templates/packageExportsExist.js";
+export { generateSecretNotPublicTest } from "./templates/secretNotPublic.js";
 export type { GeneratedTest, GenerateOpts } from "./templates/rateLimit.js";
 
 import type { Claim } from "./claimParser.js";
@@ -63,6 +65,7 @@ import { generateLibraryReturnsTest } from "./templates/libraryReturns.js";
 import { generateLockfileIntegrityTest } from "./templates/lockfileIntegrity.js";
 import { generateConfigInvariantTest } from "./templates/configInvariant.js";
 import { generatePackageExportsExistTest } from "./templates/packageExportsExist.js";
+import { generateSecretNotPublicTest } from "./templates/secretNotPublic.js";
 
 // Convenience dispatcher — given any Claim, pick the right generator.
 // Keeps callers (CLI, landing demo, hosted Worker) DRY.
@@ -98,6 +101,8 @@ export function generateTest(claim: Claim, opts: GenerateOpts): GeneratedTest {
       return generateConfigInvariantTest(claim, opts);
     case "package-exports-exist":
       return generatePackageExportsExistTest(claim, opts);
+    case "secret-not-public":
+      return generateSecretNotPublicTest(claim, opts);
   }
   // Exhaustiveness guard — if a new Claim variant is added without a
   // case here, TS will fail to compile this assignment with a clear

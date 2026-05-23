@@ -93,6 +93,31 @@ export type CliFlagSupportedClaim = {
   raw: string;
 };
 
+// Secret-not-public claim. Asserts that NO environment variable
+// matching "NEXT_PUBLIC_*<SECRET-WORD>*" exists in the codebase.
+// Catches the highest-impact AI mistake category: naming a public-by-
+// design env var with a secret-sounding suffix like
+// NEXT_PUBLIC_STRIPE_SECRET_KEY (which Next.js inlines into the
+// client bundle, leaking the key).
+//
+// Single-purpose, no parameters. Single pin per repo. The test scans
+// .env*, source files, and package configs for any string matching
+// /NEXT_PUBLIC_.*?(SECRET|TOKEN|PRIVATE_KEY|PRIVATE|API_KEY)/.
+// Auto-emitted at baseline-on-init when ANY .env* file exists OR
+// when the repo has Next.js as a dependency (since the leak only
+// happens in NEXT_PUBLIC_-style frameworks).
+export type SecretNotPublicClaim = {
+  template: "secret-not-public";
+  // Framework prefix the rule guards. Currently "NEXT_PUBLIC_" but
+  // future variants (VITE_*, REACT_APP_*, PUBLIC_*) can use the same
+  // template with a different prefix.
+  publicPrefix: string;
+  // Substrings that mark an env var as secret-shaped. Default:
+  // SECRET, TOKEN, PRIVATE_KEY, PRIVATE, API_KEY. Customizable.
+  secretMarkers: string[];
+  raw: string;
+};
+
 // Package-exports-exist claim. Asserts that the package's main /
 // exports entry continues to export named symbols. Catches AI agents
 // that rename, delete, or relocate exported library functions —
@@ -140,6 +165,64 @@ export type ConfigInvariantClaim = {
   label: string;
   raw: string;
 };
+
+// Pin strength classification — used by `pinned list` + PINS.md to
+// group pins by what they actually catch. Avoids the misleading "all
+// pins are equal" framing GPT flagged.
+//
+//   "behavioral":  the pin runs against live behavior — actual HTTP
+//                  requests, command-line execution, library calls.
+//                  Catches real regressions when the protected
+//                  behavior changes.
+//   "guardrail":   the pin checks file/config invariants. Catches
+//                  AI agents that "tidy up" load-bearing config or
+//                  silently change dependencies. Useful but less
+//                  dramatic than a behavioral pin.
+//   "unverified":  the pin is saved but can't run yet — typically an
+//                  HTTP pin without PREVIEW_URL / local dev mode set.
+//                  Surfaced so users don't mistake skipped pins for
+//                  verified protection.
+//
+// Static — computed from claim template + runtime context (whether
+// PREVIEW_URL is set / local-dev mode is configured). Defined here
+// instead of in registry.ts so the landing demo can use it too.
+export type PinStrength = "behavioral" | "guardrail" | "unverified";
+
+export function classifyPinStrength(
+  claim: Claim,
+  ctx: { hasPreviewUrl: boolean; httpMode?: "local" | "preview" | "off" }
+): PinStrength {
+  const httpVerifiable =
+    ctx.hasPreviewUrl ||
+    ctx.httpMode === "local" ||
+    ctx.httpMode === "preview";
+  switch (claim.template) {
+    case "rate-limit":
+    case "auth-required":
+    case "permission-required":
+    case "tier-cap":
+    case "idempotent":
+    case "returns-status":
+      // HTTP templates — strong if a URL is configured, unverified otherwise.
+      return httpVerifiable ? "behavioral" : "unverified";
+    case "cli-output-contains":
+    case "cli-exits-zero":
+    case "cli-creates-file":
+    case "cli-json-shape":
+    case "cli-flag-supported":
+    case "library-returns":
+      // These run against the customer's filesystem at the current
+      // commit. No preview URL needed; always behavioral.
+      return "behavioral";
+    case "lockfile-integrity":
+    case "config-invariant":
+    case "package-exports-exist":
+    case "secret-not-public":
+      // Static guardrails — file/config checks. Real-value but not
+      // behavioral verification.
+      return "guardrail";
+  }
+}
 
 // Lockfile-integrity claim. Asserts the SHA-256 of one of the
 // supported lockfiles (package-lock.json / pnpm-lock.yaml / yarn.lock /
@@ -266,7 +349,8 @@ export type Claim =
   | LibraryReturnsClaim
   | ConfigInvariantClaim
   | LockfileIntegrityClaim
-  | PackageExportsClaim;
+  | PackageExportsClaim
+  | SecretNotPublicClaim;
 
 // A route token: must start with ASCII `/`, must not contain whitespace,
 // trailing punctuation, OR dangerous Unicode characters (RTL-override,
@@ -1243,6 +1327,12 @@ export function describeClaimForUser(c: Claim): ClaimDisplay {
         promise: `\`${c.modulePath}\` continues to export: ${c.exports.join(", ")} — catches accidental renames / deletions in the public API.`,
         check: `Dynamic-imports \`${c.modulePath}\`, asserts every name in [${c.exports.join(", ")}] is defined (\`typeof export !== "undefined"\`).`,
       };
+    case "secret-not-public":
+      return {
+        title: `No \`${c.publicPrefix}\` env var contains [${c.secretMarkers.join(", ")}]`,
+        promise: `No environment variable matching \`${c.publicPrefix}*\` ever has a secret-shaped name — catches the AI mistake of inlining a server-only secret into the client bundle.`,
+        check: `Scans \`.env*\` files and source for any \`${c.publicPrefix}*<SECRET-MARKER>*\` reference; fails if any match.`,
+      };
   }
 }
 
@@ -1346,6 +1436,8 @@ export function badCaseForClaim(claim: Claim): string {
       return `${claim.label} block was removed from \`${claim.configPath}\` (likely AI "cleanup" that dropped a load-bearing config)`;
     case "package-exports-exist":
       return `\`${claim.modulePath}\` no longer exports one of [${claim.exports.join(", ")}] — a public-API symbol was renamed, deleted, or relocated`;
+    case "secret-not-public":
+      return `a \`${claim.publicPrefix}\` env var with a secret-shaped suffix (${claim.secretMarkers.join(", ")}) was introduced — would leak a server secret into the client bundle`;
   }
 }
 
@@ -1406,6 +1498,7 @@ export function claimRoute(c: Claim): string | null {
     case "lockfile-integrity":
     case "config-invariant":
     case "package-exports-exist":
+    case "secret-not-public":
       return null;
   }
 }
@@ -1430,7 +1523,9 @@ export function claimSlug(claim: Claim): string {
           ? `config-${claim.configPath}-${claim.label}`
           : claim.template === "package-exports-exist"
             ? `exports-${claim.modulePath}`
-            : claim.route;
+            : claim.template === "secret-not-public"
+              ? `secret-not-public-${claim.publicPrefix}`
+              : claim.route;
   const route = routeSource
     .replace(/^\//, "")
     .replace(/[^a-z0-9]+/gi, "-")
@@ -1499,6 +1594,8 @@ export function claimKey(c: Claim): string {
       // Same module + different export sets stay distinct (lets a
       // user pin core exports separately from utility exports).
       return `package-exports-exist:${c.modulePath}:${[...c.exports].sort().join(",")}`;
+    case "secret-not-public":
+      return `secret-not-public:${c.publicPrefix}:${[...c.secretMarkers].sort().join(",")}`;
   }
 }
 

@@ -29,6 +29,7 @@ import {
   detectBugFixPhrase,
 } from "./claimParser.js";
 import type { Claim } from "./claimParser.js";
+import { classifyPinStrength, type PinStrength } from "./claimParser.js";
 import { generateTest } from "./index.js";
 import {
   readRegistry,
@@ -37,6 +38,7 @@ import {
   retireEntry,
   countActivePins,
   renderCatchesMarkdown,
+  type RegistryEntry,
 } from "./registry.js";
 import { activeByokProvider } from "./llmDirect.js";
 import {
@@ -1292,7 +1294,7 @@ program
         // pins from package.json bin entries. We prepend these to the
         // safe[] list so they win the per-template dedup against any
         // overlapping route-based suggestions.
-        const { detectCliLibraryPins, detectLockfilePins, detectConfigInvariantPins, detectPackageExportsPins } = await import("./scanDiff.js");
+        const { detectCliLibraryPins, detectLockfilePins, detectConfigInvariantPins, detectPackageExportsPins, detectReturnsStatusPins, detectSecretNotPublicPins } = await import("./scanDiff.js");
         try {
           const cliLibPins = detectCliLibraryPins(cwd);
           for (const p of cliLibPins) {
@@ -1346,6 +1348,66 @@ program
           }
         } catch (e) {
           out(`  ! config-invariant pin detection failed: ${(e as Error).message}`);
+        }
+
+        // Secret-not-public pin — emitted ONCE when the repo uses
+        // a framework with a public env prefix (Next.js / Vite /
+        // CRA / SvelteKit / Expo). The pin asserts that no env var
+        // with the public prefix has a secret-shaped name.
+        try {
+          const secretPins = detectSecretNotPublicPins(cwd);
+          for (const sp of secretPins) {
+            const claim = {
+              template: "secret-not-public" as const,
+              publicPrefix: sp.publicPrefix,
+              secretMarkers: sp.secretMarkers,
+              raw: sp.suggestedPin,
+            };
+            const gen = generateTest(claim, { prId });
+            const target = join(pinnedDir, gen.filename);
+            try {
+              assertInsideDir(target, pinnedDir);
+              writeFileSync(target, gen.content, { flag: "wx" });
+              registry = addEntry(registry, {
+                claimId: gen.claimId,
+                prId,
+                claim,
+                filename: gen.filename,
+              });
+              baselineAutoAdded += 1;
+              baselineAddedSummaries.push(summarizeClaimForBanner(claim));
+            } catch (e) {
+              if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+                out(`  ! secret-not-public pin failed for ${gen.filename}: ${(e as Error).message}`);
+              }
+            }
+          }
+        } catch (e) {
+          out(`  ! secret-not-public detection failed: ${(e as Error).message}`);
+        }
+
+        // Returns-status pins — scan route files for validation
+        // library calls (Zod / Yup / Joi / generic `validate(body)`).
+        // Each detected validation surface becomes a "POST /route
+        // returns 400 on missing body" pin candidate. These require
+        // PREVIEW_URL to verify — they enter as suggestions surfaced
+        // through the normal `safe[]` pipeline, NOT as auto-added
+        // pins, because the HTTP-template skip-without-URL rule
+        // applies. We push them into `safe` so they consume the
+        // MAX_BASELINE_AUTO_PINS budget and end up as pins.
+        try {
+          const validationPins = detectReturnsStatusPins(cwd);
+          for (const v of validationPins) {
+            safe.push({
+              template: "returns-status",
+              route: v.route,
+              reason: `${v.method} ${v.route} — pin will check input validation still rejects bad bodies with ${v.status}`,
+              suggestedPin: v.suggestedPin,
+              files: [],
+            } as (typeof safe)[number]);
+          }
+        } catch (e) {
+          out(`  ! returns-status detection failed: ${(e as Error).message}`);
         }
 
         // Package-exports-exist pins — emitted when package.json
@@ -2044,6 +2106,8 @@ function summarizeClaimForBanner(claim: Claim): string {
       return humanizeConfigLabel(claim.label, claim.configPath);
     case "package-exports-exist":
       return `\`${claim.modulePath}\` keeps exporting ${claim.exports.length} symbol${claim.exports.length === 1 ? "" : "s"}`;
+    case "secret-not-public":
+      return `no \`${claim.publicPrefix}*\` env var leaks a secret to the client bundle`;
   }
 }
 
@@ -2356,29 +2420,72 @@ program
       return;
     }
 
-    // Default — title-only scan view. Run `pinned show <id>` for detail.
+    // Default — title-only scan view, GROUPED BY STRENGTH so users
+    // don't mistake static guardrails for behavioral verifications
+    // (per GPT's "classify pins by strength" recommendation).
+    //
+    //   Strong (behavioral)  — pin runs against live behavior
+    //   Guardrails (static)  — file/config invariant checks
+    //   Not verified yet     — HTTP pins lacking a configured URL
     if (!opts.verbose) {
       if (active.length > 0) {
-        // See verbose-mode comment below for the rationale on ⊘/?.
         const anySkippedShort = (last?.skippedCount ?? 0) > 0;
-        out(`Protected behaviors (${active.length}) — ✓ verified, ✗ broken, ⊘ skipped, ? not yet checked:`);
-        out("");
-        let i = 0;
+        const httpCfg = readConfigImport(process.cwd()).http;
+        const hasUrl = !!process.env.PREVIEW_URL;
+        const ctx = { hasPreviewUrl: hasUrl, httpMode: httpCfg.mode };
+
+        const byStrength: Record<PinStrength, RegistryEntry[]> = {
+          behavioral: [],
+          guardrail: [],
+          unverified: [],
+        };
         for (const e of active) {
-          i += 1;
-          let statusIcon: string;
-          if (failingSet.has(e.claimId)) {
-            statusIcon = "✗";
-          } else if (anySkippedShort) {
-            // Conservative — can't tell WHICH pins skipped from the
-            // aggregate count. Never falsely claim "verified."
-            statusIcon = "?";
-          } else if (last) {
-            statusIcon = "✓";
-          } else {
-            statusIcon = "?";
+          byStrength[classifyPinStrength(e.claim, ctx)].push(e);
+        }
+
+        out(
+          `Protected behaviors (${active.length}) — ✓ verified, ✗ broken, ⊘ skipped, ? not yet checked:`
+        );
+
+        const sections: { label: string; items: RegistryEntry[]; note: string }[] = [
+          {
+            label: "Strong (runs against live behavior)",
+            items: byStrength.behavioral,
+            note: "",
+          },
+          {
+            label: "Guardrails (static file/config checks)",
+            items: byStrength.guardrail,
+            note: "",
+          },
+          {
+            label: "Not verified yet",
+            items: byStrength.unverified,
+            note: "no preview URL or local-dev mode configured — set PREVIEW_URL or enable http.mode=local to verify",
+          },
+        ];
+        let i = 0;
+        for (const sec of sections) {
+          if (sec.items.length === 0) continue;
+          out("");
+          out(`  ${sec.label} (${sec.items.length})`);
+          if (sec.note) out(`    ${sec.note}`);
+          for (const e of sec.items) {
+            i += 1;
+            let statusIcon: string;
+            if (failingSet.has(e.claimId)) {
+              statusIcon = "✗";
+            } else if (sec.label.startsWith("Not verified")) {
+              statusIcon = "⊘";
+            } else if (anySkippedShort) {
+              statusIcon = "?";
+            } else if (last) {
+              statusIcon = "✓";
+            } else {
+              statusIcon = "?";
+            }
+            out(`${String(i).padStart(4)}. ${statusIcon} ${describeClaimForUser(e.claim).title}`);
           }
-          out(`${String(i).padStart(2)}. ${statusIcon} ${describeClaimForUser(e.claim).title}`);
         }
         out("");
         if (anySkippedShort) {
@@ -5279,6 +5386,8 @@ function describeClaim(c: Claim): string {
       return `config         ${c.configPath}  →  ${c.label} present`;
     case "package-exports-exist":
       return `pkg-exports    ${c.modulePath}  →  exports [${c.exports.join(", ")}]`;
+    case "secret-not-public":
+      return `secret-shape   ${c.publicPrefix}*  →  none contains [${c.secretMarkers.join(", ")}]`;
   }
 }
 

@@ -229,6 +229,9 @@ export function coverageFromClaim(claim: Claim): PinCoverage {
       return { files: [claim.configPath] };
     case "package-exports-exist":
       return { files: [claim.modulePath] };
+    case "secret-not-public":
+      // Repo-wide scan — no single file to map to coverage.
+      return {};
     case "cli-output-contains":
     case "cli-exits-zero":
     case "cli-creates-file":
@@ -377,6 +380,8 @@ function claimLabel(c: Claim): string {
       return `\`config ${escapeMarkdownCell(c.label)}\` in \`${escapeMarkdownCell(c.configPath)}\``;
     case "package-exports-exist":
       return `\`exports ${escapeMarkdownCell(c.modulePath)}\` (${c.exports.length} symbol${c.exports.length === 1 ? "" : "s"})`;
+    case "secret-not-public":
+      return `\`no ${escapeMarkdownCell(c.publicPrefix)}*<secret>\` (server secrets stay private)`;
   }
 }
 
