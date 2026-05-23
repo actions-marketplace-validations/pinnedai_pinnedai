@@ -60,6 +60,49 @@ export type PinnedConfig = {
   //              as "hide the item"). For users who find the always-on
   //              indicator distracting.
   statusline_mode: "all" | "minimal";
+  // HTTP-pin verification mode. Where Pinned points its 6 HTTP-route
+  // templates (rate-limit / auth-required / permission-required /
+  // idempotent / tier-cap / returns-status). Three modes:
+  //
+  //   "local":   Pinned will spawn `start` (default: `npm run dev`)
+  //              during `pinned test`, wait for `url` to respond, run
+  //              HTTP pins against it, then tear down ONLY processes
+  //              that Pinned started (never kills user's pre-existing
+  //              dev server). Best for solo AI coders with no
+  //              preview-deploy infrastructure.
+  //   "preview": HTTP pins read PREVIEW_URL from env (set by the user's
+  //              CI / their Vercel/Netlify integration). No local
+  //              process spawning. Best for CI + repos with PR previews.
+  //   "off":     HTTP pins skip entirely. Pinned tests only CLI /
+  //              library / config / lockfile pins. For users who don't
+  //              care about HTTP behavior verification.
+  //
+  // Pinned NEVER spawns a dev server from statusline / chat hook —
+  // only during the explicit `pinned test` command. Per the GPT
+  // "passive vs explicit" guardrail.
+  http: HttpConfig;
+};
+
+export type HttpMode = "local" | "preview" | "off";
+
+export type HttpConfig = {
+  mode: HttpMode;
+  // Command Pinned runs when mode=local AND the URL doesn't already
+  // respond. Tokenized at spawn time (no shell). Default: "npm run dev".
+  start: string;
+  // URL the HTTP pins target. For mode=local, the URL Pinned probes
+  // to detect the dev server is ready, then exports as PREVIEW_URL
+  // for the vitest invocation. For mode=preview, ignored — PREVIEW_URL
+  // comes from the env var the customer's CI sets.
+  url: string;
+  // Path on the URL Pinned hits to detect "server is ready". Defaults
+  // to "/". Frameworks with auth at the root may prefer "/api/health"
+  // or similar.
+  ready_path: string;
+  // Max seconds Pinned waits for the dev server to respond before
+  // giving up. Default 60s (Next.js cold start can take 10-30s on a
+  // moderate-size project).
+  timeout_seconds: number;
 };
 
 export const CONFIG_DIRNAME = ".pinnedai";
@@ -82,6 +125,18 @@ export const DEFAULT_CONFIG: PinnedConfig = {
   // auto-protect under the threshold, and `pinned review` still works.
   show_review_count: true,
   statusline_mode: "all",
+  // Default: "off" — users explicitly opt into HTTP testing during
+  // `pinned init`. Without an explicit choice, HTTP pins are saved
+  // but skipped with the "not verified — no preview URL" message,
+  // exactly the behavior we already ship. Choosing "local" or
+  // "preview" during init flips this.
+  http: {
+    mode: "off",
+    start: "npm run dev",
+    url: "http://localhost:3000",
+    ready_path: "/",
+    timeout_seconds: 60,
+  },
 };
 
 export function configPath(repoRoot: string): string {
@@ -115,6 +170,7 @@ export function readConfig(repoRoot: string): PinnedConfig {
       raw.statusline_mode === "all" || raw.statusline_mode === "minimal"
         ? raw.statusline_mode
         : DEFAULT_CONFIG.statusline_mode;
+    const http: HttpConfig = readHttpConfig(raw.http);
     return {
       version: 1,
       auto_protect: mode,
@@ -123,10 +179,32 @@ export function readConfig(repoRoot: string): PinnedConfig {
       auto_review_threshold: threshold,
       show_review_count: showReviewCount,
       statusline_mode: statuslineMode,
+      http,
     };
   } catch {
     return DEFAULT_CONFIG;
   }
+}
+
+function readHttpConfig(raw: unknown): HttpConfig {
+  const def = DEFAULT_CONFIG.http;
+  if (!raw || typeof raw !== "object") return def;
+  const r = raw as Partial<HttpConfig>;
+  const mode: HttpMode =
+    r.mode === "local" || r.mode === "preview" || r.mode === "off"
+      ? r.mode
+      : def.mode;
+  const start = typeof r.start === "string" && r.start.length > 0 ? r.start : def.start;
+  const url = typeof r.url === "string" && r.url.startsWith("http") ? r.url : def.url;
+  const ready_path =
+    typeof r.ready_path === "string" && r.ready_path.startsWith("/")
+      ? r.ready_path
+      : def.ready_path;
+  const timeout_seconds =
+    typeof r.timeout_seconds === "number" && r.timeout_seconds >= 5 && r.timeout_seconds <= 600
+      ? r.timeout_seconds
+      : def.timeout_seconds;
+  return { mode, start, url, ready_path, timeout_seconds };
 }
 
 export function writeConfig(repoRoot: string, config: PinnedConfig): void {

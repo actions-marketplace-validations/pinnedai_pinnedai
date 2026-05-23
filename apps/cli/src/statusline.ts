@@ -58,6 +58,13 @@ export type LastStatus = {
   // calm green state once the user has had time to notice.
   recentlyAddedCount?: number;
   recentlyAddedAt?: string; // ISO timestamp of last auto-add batch
+  // Short list of human-readable summaries of the most recent pin
+  // additions — e.g. ["auth required on /api/admin/scans",
+  // "stripe webhook idempotency", "lockfile integrity"]. Used by the
+  // statusline transient celebration + chat-hook add-message so users
+  // SEE what was protected, not just a count. Capped at 5 entries by
+  // the writer; the renderer further truncates for terminal width.
+  recentlyAddedSummaries?: string[];
   // Set by `pinned auto-protect` when mode=ask, or by the classifier
   // when it finds candidates that need human confirmation.
   // Persistent (no decay) — survives until `pinned protect` consumes
@@ -558,7 +565,10 @@ export function formatChatHook(
       : -Infinity;
     if (Number.isFinite(age) && age >= 0 && age < RECENTLY_ADDED_TTL_MS && addedAt > notifiedAt) {
       return {
-        text: addCelebrationMessage(lastStatus.recentlyAddedCount),
+        text: addCelebrationMessage(
+          lastStatus.recentlyAddedCount,
+          lastStatus.recentlyAddedSummaries ?? []
+        ),
         stampAddNotifiedAt: lastStatus.recentlyAddedAt,
       };
     }
@@ -574,15 +584,33 @@ export function formatFailureHook(lastStatus: LastStatus | null): string {
   return formatChatHook(lastStatus).text;
 }
 
-function addCelebrationMessage(n: number): string {
-  // One-line, factual. AI agents read this and weave it into their
-  // response. Avoid emoji-heavy or hype-y wording — feels less honest.
-  return [
-    `Pinned auto-pinned ${n} new behavior${n === 1 ? "" : "s"}.`,
-    ``,
-    `Future commits that break these contracts will fail CI with a back-reference to this PR.`,
-    `Run \`pinned catches\` to see what's been protected; \`pinned list --verbose\` for full detail.`,
-  ].join("\n");
+function addCelebrationMessage(n: number, summaries: string[]): string {
+  // Same shape as init's banner — one header line naming what Pinned
+  // does, one short footer naming the consequence. The bullets
+  // describe WHAT each pin protects (not "+N pins" abstract count).
+  //
+  // Caps the visible list at MAX_VISIBLE so a 10-pin batch doesn't
+  // dominate the chat turn. AI agents see this output and weave it
+  // into their response; keep wording calm and factual.
+  const MAX_VISIBLE = 5;
+  const lines: string[] = [
+    `★ Pinned added ${n} new thing${n === 1 ? "" : "s"} it'll protect from AI breakage:`,
+  ];
+  if (summaries.length > 0) {
+    const visible = summaries.slice(0, MAX_VISIBLE);
+    const rest = summaries.length - visible.length;
+    for (const s of visible) {
+      lines.push(`   + ${s}`);
+    }
+    if (rest > 0) {
+      lines.push(`   + …and ${rest} more`);
+    }
+  }
+  lines.push("");
+  lines.push(
+    `   If AI changes break any of these, your tests will fail and Pinned will tell you.`
+  );
+  return lines.join("\n");
 }
 
 function failureMessage(lastStatus: LastStatus): string {

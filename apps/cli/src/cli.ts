@@ -479,7 +479,12 @@ program
       if (!opts.dryRun && registry && written > 0) {
         writeRegistry(outDir, registry);
         out(`~ ${relative(process.cwd(), join(outDir, "PINS.md"))}`);
-        stampPinAddedToCache(outDir, written, countActivePins(registry));
+        stampPinAddedToCache(
+          outDir,
+          written,
+          countActivePins(registry),
+          writtenPins.map((p) => summarizeClaimForBanner(p.claim))
+        );
       }
       if (!opts.dryRun) {
         out("");
@@ -576,7 +581,8 @@ program
 function stampPinAddedToCache(
   pinDir: string,
   added: number,
-  totalAfter: number
+  totalAfter: number,
+  summaries?: string[]
 ): void {
   const prev = readLastStatus(pinDir);
   const { sha, dirtyHash } = captureGitState(process.cwd());
@@ -591,6 +597,11 @@ function stampPinAddedToCache(
     totalPins: totalAfter,
     recentlyAddedCount: added,
     recentlyAddedAt: new Date().toISOString(),
+    // Cap stored summaries at 5 entries — the chat hook only renders
+    // 5 anyway, and the cache file shouldn't bloat from a 50-pin batch.
+    ...(summaries && summaries.length > 0
+      ? { recentlyAddedSummaries: summaries.slice(0, 5) }
+      : {}),
     lastCheckedSha: sha ?? undefined,
     lastCheckedDirtyHash: dirtyHash ?? undefined,
     updatedAt: new Date().toISOString(),
@@ -1201,6 +1212,12 @@ program
     // review via `pinned protect`.
     let baselineAutoAdded = 0;
     let baselineSuggested = 0;
+    // Track the human-readable description of each added pin so the
+    // post-init success message can NAME what was added. "+4 pins" is
+    // abstract; "+ Stripe webhook (idempotent), auth on /api/admin, …"
+    // is concrete. The user's felt-value comes from knowing what's
+    // being protected, not from the count.
+    const baselineAddedSummaries: string[] = [];
     const MAX_BASELINE_AUTO_PINS = 10;
     if (setupMode === "auto" && !opts.plan && vitestUsable) {
       try {
@@ -1299,6 +1316,7 @@ program
                 filename: gen.filename,
               });
               baselineAutoAdded += 1;
+              baselineAddedSummaries.push(summarizeClaimForBanner(claim));
             } catch (e) {
               if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
                 out(`  ! config-invariant pin failed for ${gen.filename}: ${(e as Error).message}`);
@@ -1333,6 +1351,7 @@ program
                 filename: gen.filename,
               });
               baselineAutoAdded += 1;
+              baselineAddedSummaries.push(summarizeClaimForBanner(claim));
             } catch (e) {
               if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
                 out(`  ! lockfile pin failed for ${gen.filename}: ${(e as Error).message}`);
@@ -1358,6 +1377,10 @@ program
                 filename: gen.filename,
               });
               baselineAutoAdded += 1;
+              // Format a short human label per pin: "<template> on <route>"
+              // or "<template>: <identifier>". Keeps the summary readable
+              // when 10 pins land at once.
+              baselineAddedSummaries.push(summarizeClaimForBanner(claim));
             } catch (e) {
               // EEXIST: pin already exists. Don't crash; just skip.
               if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
@@ -1369,7 +1392,12 @@ program
         }
         if (baselineAutoAdded > 0) {
           writeRegistry(pinnedDir, registry);
-          stampPinAddedToCache(pinnedDir, baselineAutoAdded, countActivePins(registry));
+          stampPinAddedToCache(
+            pinnedDir,
+            baselineAutoAdded,
+            countActivePins(registry),
+            baselineAddedSummaries
+          );
         }
         baselineSuggested =
           ambiguous.length + Math.max(0, safe.length - MAX_BASELINE_AUTO_PINS);
@@ -1412,11 +1440,27 @@ program
     if (setupMode === "auto" && (baselineAutoAdded > 0 || baselineSuggested > 0)) {
       out("");
       if (baselineAutoAdded > 0) {
+        // Name the pins so the user FEELS the value, not just sees +N.
+        // "+ Added 4 pins" is abstract; "+ Added Stripe webhook
+        // idempotency, auth on /api/admin, lockfile integrity + 1 more"
+        // shows what's actually being protected.
+        const namedSummary =
+          baselineAddedSummaries.length > 0
+            ? renderAddedSummaryList(baselineAddedSummaries)
+            : "";
         out(
-          `+ Added ${baselineAutoAdded} pin${baselineAutoAdded === 1 ? "" : "s"} from your current code (high-confidence routes / webhooks). See tests/pinned/ for the generated tests.`
+          `★ Pinned is now protecting ${baselineAutoAdded} thing${baselineAutoAdded === 1 ? "" : "s"} in your repo:`
+        );
+        if (namedSummary) {
+          out(namedSummary);
+        }
+        out("");
+        out(
+          `   If AI changes break any of these, your tests will fail and Pinned will tell you.`
         );
       }
       if (baselineSuggested > 0) {
+        out("");
         out(
           `? ${baselineSuggested} more candidate${baselineSuggested === 1 ? "" : "s"} need review. Run \`pinned protect\` to add the ones that apply.`
         );
@@ -1727,6 +1771,104 @@ async function promptSetupMode(): Promise<"auto" | "manual"> {
 // hint in error messages is always paste-runnable. Reads package.json /
 // pnpm-workspace.yaml synchronously — must stay in lockstep with
 // vitestSetup.installCommand().
+// Compact plain-English label for a single auto-added pin. Used in
+// the init success banner + statusline + chat hook so users feel the
+// VALUE, not just the count.
+//
+// Wording convention: each line follows the shape
+//    "<subject> — pin will check <future-tense check>"
+// or "pin will check <subject> <future-tense check>".
+//
+// Why "pin will check" and not "still requires" — "still requires"
+// implies Pinned ALREADY verified the contract at install time, which
+// it hasn't (HTTP pins need a running server). "pin will check" is
+// honest: the pin is a permanent test that will run on every future
+// commit and fail if the contract breaks.
+// Compact plain-English subject of what each pin protects. Used by
+// the init banner under a header that explains Pinned's role
+// ("Pinned will catch if AI changes break any of these…"), so each
+// line is just the SUBJECT — short, scannable, value-directed.
+function summarizeClaimForBanner(claim: Claim): string {
+  switch (claim.template) {
+    case "rate-limit":
+      return `${claim.route} rate limit: ${claim.rate}/${claim.window}`;
+    case "auth-required":
+      return `${claim.route} auth check`;
+    case "permission-required":
+      return `${claim.route} ${claim.role}-only access`;
+    case "tier-cap":
+      return `${claim.tier}-tier limit: ${claim.cap} ${claim.resource} on ${claim.route}`;
+    case "idempotent":
+      return `${capitalize(humanProviderFromRoute(claim.route))} webhook duplicate-event handling`;
+    case "returns-status":
+      return `${claim.method} ${claim.route} input validation`;
+    case "cli-output-contains":
+      return `\`${claim.route}\` output content`;
+    case "cli-exits-zero":
+      return `\`${claim.route}\` runs without crashing`;
+    case "cli-creates-file":
+      return `\`${claim.route}\` produces ${claim.filePath}`;
+    case "cli-json-shape":
+      return `\`${claim.route}\` JSON output shape`;
+    case "cli-flag-supported":
+      return `\`${claim.flag}\` flag on \`${claim.route}\``;
+    case "library-returns":
+      return `${claim.functionName}() return value`;
+    case "lockfile-integrity":
+      return `dependency lockfile`;
+    case "config-invariant":
+      return humanizeConfigLabel(claim.label, claim.configPath);
+  }
+}
+
+// Translate the internal `config-invariant` label into a short subject
+// describing what's protected. Falls back to the literal label when
+// no mapping exists. Per GPT: avoid scary words like "auto-commit"
+// and over-specific tech terms ("hosted LLM"); say what it IS in
+// terms the user already knows.
+function humanizeConfigLabel(label: string, configPath: string): string {
+  switch (label) {
+    case "OIDC permission":
+      return `GitHub Action permission for Pinned`;
+    case "auto-commit permission":
+      return `GitHub Action permission to add new pins`;
+    case "Pinned guardrail block":
+      return `AI-coder rules in CLAUDE.md`;
+    default:
+      return `"${label}" in ${configPath}`;
+  }
+}
+
+function capitalize(s: string): string {
+  return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
+}
+
+// Best-effort "what provider is this webhook?" — pulls the segment
+// after /webhooks/ which we already validated is in the known-provider
+// allowlist at detection time.
+function humanProviderFromRoute(route: string): string {
+  const m = /^\/webhooks?\/([a-z0-9]+)/i.exec(route);
+  return m ? m[1] : "incoming";
+}
+
+// Render a list of added-pin summaries as bullets. Caps the visible
+// count to keep the banner short — "+ stripe webhook idempotency
+//                                   + auth required on /api/admin
+//                                   + lockfile integrity + 1 more"
+// reads better than dumping all 10 names. The full list is one
+// `pinned list` away.
+function renderAddedSummaryList(summaries: string[]): string {
+  if (summaries.length === 0) return "";
+  const MAX_VISIBLE = 5;
+  const visible = summaries.slice(0, MAX_VISIBLE);
+  const rest = summaries.length - visible.length;
+  const lines = visible.map((s) => `   + ${s}`);
+  if (rest > 0) {
+    lines.push(`   + …and ${rest} more`);
+  }
+  return lines.join("\n");
+}
+
 function installCommandStr(
   pm: "npm" | "pnpm" | "yarn" | "bun",
   cwd?: string
@@ -3422,6 +3564,7 @@ program
       mkdirSync(opts.dir, { recursive: true });
       let registry = readRegistry(opts.dir);
       let written = 0;
+      const addedSummaries: string[] = [];
       const prId = `protect-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
       for (const idx of selected) {
         const s = result.suggestions[idx];
@@ -3444,6 +3587,7 @@ program
               filename: gen.filename,
             });
             written += 1;
+            addedSummaries.push(summarizeClaimForBanner(claim));
           } catch (e) {
             if ((e as NodeJS.ErrnoException).code === "EEXIST") {
               out(`  = ${gen.filename} (already pinned, skipping)`);
@@ -3455,9 +3599,22 @@ program
       }
       if (written > 0) {
         writeRegistry(opts.dir, registry);
-        stampPinAddedToCache(opts.dir, written, countActivePins(registry));
+        stampPinAddedToCache(
+          opts.dir,
+          written,
+          countActivePins(registry),
+          addedSummaries
+        );
         out("");
-        out(`Protected ${written} risk${written === 1 ? "" : "s"}. Commit the new tests in tests/pinned/ to lock the contracts in.`);
+        out(`★ Pinned now protects ${written} more thing${written === 1 ? "" : "s"}:`);
+        for (const s of addedSummaries.slice(0, 5)) {
+          out(`   + ${s}`);
+        }
+        if (addedSummaries.length > 5) {
+          out(`   + …and ${addedSummaries.length - 5} more`);
+        }
+        out("");
+        out(`If AI changes break any of these, your tests will fail and Pinned will tell you.`);
       }
     }
   );
@@ -4524,6 +4681,38 @@ program
       err(`✗ ${opts.dir}/ does not exist. Run \`pinned init\` first.\n`);
       process.exit(1);
     }
+
+    // Local-dev-server mode (config.http.mode === "local"):
+    // Spawn the user's dev server before invoking vitest, then tear
+    // it down on completion. Detects already-running servers and
+    // attaches instead of duplicating. Only triggered from explicit
+    // `pinned test` — never from statusline / hooks / chat hooks.
+    //
+    // If PREVIEW_URL is already set by the environment (e.g. CI sets
+    // it from the Vercel preview), we use that and skip dev-server
+    // startup entirely.
+    const httpCfg = readConfigImport(process.cwd()).http;
+    let devHandle: import("./devServer.js").DevServerHandle | null = null;
+    const childEnv: Record<string, string | undefined> = { ...process.env };
+    if (!process.env.PREVIEW_URL && httpCfg.mode === "local") {
+      try {
+        const { startIfNeeded } = await import("./devServer.js");
+        devHandle = await startIfNeeded({
+          start: httpCfg.start,
+          url: httpCfg.url,
+          readyPath: httpCfg.ready_path,
+          timeoutSeconds: httpCfg.timeout_seconds,
+          cwd: process.cwd(),
+        });
+        childEnv.PREVIEW_URL = devHandle.url;
+      } catch (e) {
+        err(`✗ pinned: local dev server failed to start.\n  ${(e as Error).message}\n`);
+        // Continue without PREVIEW_URL — HTTP pins will skip with the
+        // existing "not verified" message. Better than blocking the
+        // whole `pinned test` run on a flaky dev server.
+      }
+    }
+
     const { spawnSync } = await import("node:child_process");
     const result = spawnSync(
       "npx",
@@ -4531,10 +4720,19 @@ program
       {
         stdio: ["ignore", "pipe", "pipe"],
         encoding: "utf8",
+        env: childEnv as NodeJS.ProcessEnv,
       }
     );
     process.stdout.write(result.stdout ?? "");
     process.stderr.write(result.stderr ?? "");
+    // Tear down ONLY the dev server we started (devHandle.started=true).
+    if (devHandle && devHandle.started) {
+      try {
+        await devHandle.stop();
+      } catch {
+        /* best effort */
+      }
+    }
 
     // Parse "FAIL  tests/pinned/<id>.test.ts" lines from vitest output.
     const combined = (result.stdout ?? "") + (result.stderr ?? "");
