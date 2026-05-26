@@ -4,11 +4,12 @@
 #   - pull_request — scans the diff, posts suggestions, auto-commits pins
 #   - issue_comment — listens for `@pinned add: <claim>` to pin from a comment
 #
-# Auto-commit is on for both Free and Pro (opt out with PINNEDAI_AUTOCOMMIT=false
-# repo variable). Pro/Team/Enterprise orgs are detected automatically via OIDC —
-# no license key needed. BYOK (opt-in, paid only) is activated by setting
-# PINNEDAI_BYOK=anthropic or PINNEDAI_BYOK=openai in repo variables, plus the
-# matching PINNEDAI_ANTHROPIC_KEY / PINNEDAI_OPENAI_KEY secret.
+# Auto-commit is on by default (opt out with PINNEDAI_AUTOCOMMIT=false
+# repo variable). BYOK (bring-your-own-key) LLM mode is opt-in via repo
+# secrets: set PINNEDAI_BYOK=anthropic | openai | claude-code | github-models
+# and provide the matching key (PINNEDAI_ANTHROPIC_KEY / PINNEDAI_OPENAI_KEY /
+# PINNEDAI_GITHUB_TOKEN). Without BYOK, Pinned runs in deterministic mode
+# (regex-based detectors only) — fully functional, just no LLM proposer.
 
 name: pinned
 on:
@@ -41,15 +42,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - uses: pnpm/action-setup@v3
-        with:
-          version: '9'
 
-      # Dogfood: pinnedai uses ITS OWN locally-built CLI on its own PRs.
-      # Customer repos use `npx -y pinnedai@<version>` instead — this is
-      # the only repo where the locally-built path is correct.
-      - name: Build local CLI
-        run: pnpm install --frozen-lockfile && pnpm --filter pinnedai build
+      # Run the pinned test suite FIRST. If any pinned test fails, the
+      # job fails and the PR is blocked — that's the headline value
+      # proposition ("if AI breaks a pinned guard, your CI fails").
+      # Pins with no PREVIEW_URL self-skip via it.skipIf — they don't
+      # fail-fast. Add a vitest install fallback in case the customer
+      # repo doesn't have it locally (Pinned init normally installs it,
+      # but some customers may have skipped that).
+      - name: Run pinned tests (block on broken guards)
+        run: |
+          if [ -d tests/pinned ] && ls tests/pinned/*.test.ts >/dev/null 2>&1; then
+            if [ -f node_modules/.bin/vitest ]; then
+              ./node_modules/.bin/vitest run tests/pinned/ --reporter=verbose --no-coverage
+            else
+              # Last-resort: vitest not installed in the repo. Fall back
+              # to npx with no-install so this step doesn't silently pass.
+              npx -y -p vitest@^2 vitest run tests/pinned/ --reporter=verbose --no-coverage
+            fi
+          else
+            echo "No pinned tests to run yet — first PR will create them."
+          fi
 
       - name: Parse claims from PR description
         env:
@@ -57,20 +70,24 @@ jobs:
           PINNEDAI_BYOK: ${{ vars.PINNEDAI_BYOK }}
           PINNEDAI_ANTHROPIC_KEY: ${{ secrets.PINNEDAI_ANTHROPIC_KEY }}
           PINNEDAI_OPENAI_KEY: ${{ secrets.PINNEDAI_OPENAI_KEY }}
-        run: node apps/cli/dist/cli.js check
+        run: npx -y pinnedai@0.0.1 check
 
-      - name: Scan diff for unpinned risk surfaces
-        id: scan
+      - name: Compose Pinned PR comment
+        id: prc
         env:
           GITHUB_PR_BODY: ${{ github.event.pull_request.body }}
           PINNEDAI_BYOK: ${{ vars.PINNEDAI_BYOK }}
           PINNEDAI_ANTHROPIC_KEY: ${{ secrets.PINNEDAI_ANTHROPIC_KEY }}
           PINNEDAI_OPENAI_KEY: ${{ secrets.PINNEDAI_OPENAI_KEY }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUM: ${{ github.event.pull_request.number }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          BODY=$(node apps/cli/dist/cli.js scan-diff --base "origin/$BASE_REF" --markdown)
-          # Random delimiter so adversarial scan-diff output can't
+          BODY=$(npx -y pinnedai@0.0.1 pr-comment \
+            --base "origin/$BASE_REF" \
+            --pr-id "pr-$PR_NUM" \
+            --quiet)
+          # Random delimiter so adversarial diff content can't
           # accidentally (or maliciously) match it and corrupt the
           # GITHUB_OUTPUT block. $RUN_ID is the GitHub run id env var.
           DELIM="PINNED_EOF_$(openssl rand -hex 16 2>/dev/null || echo "${RUN_ID}_$RANDOM")"
@@ -81,12 +98,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "$BODY"
 
-      - name: Comment on PR with pin suggestions
-        if: ${{ !contains(steps.scan.outputs.body, 'No risk surfaces detected') }}
+      - name: Post Pinned comment on PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: ${{ github.event.pull_request.number }}
-          COMMENT_BODY: ${{ steps.scan.outputs.body }}
+          COMMENT_BODY: ${{ steps.prc.outputs.body }}
+        # Always post — even quiet-success comments reinforce that
+        # Pinned ran. The body adapts to what was found.
         run: gh pr comment "$PR_NUM" --body "$COMMENT_BODY"
 
       - name: Auto-commit pinned tests
@@ -99,7 +117,7 @@ jobs:
           PR_NUM: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          node apps/cli/dist/cli.js generate \
+          npx -y pinnedai@0.0.1 generate \
             --pr-id "pr-$PR_NUM" \
             --description "$GITHUB_PR_BODY"
 
@@ -175,7 +193,7 @@ jobs:
           PR_NUM: ${{ github.event.issue.number }}
           CLAIM_TEXT: ${{ steps.extract.outputs.claim }}
         run: |
-          node apps/cli/dist/cli.js generate \
+          npx -y pinnedai@0.0.1 generate \
             --pr-id "pr-$PR_NUM" \
             --description "$CLAIM_TEXT"
 

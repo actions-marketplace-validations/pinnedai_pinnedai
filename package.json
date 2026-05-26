@@ -26,6 +26,7 @@
     "sweep:regenerate": "bash scripts/oss-fp-sweep.sh --regenerate-fixtures"
   },
   "devDependencies": {
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "vitest": "^2"
   }
 }

@@ -1,0 +1,62 @@
+{
+  "runAt": "2026-05-23T15:53:52Z",
+  "summary": { "passed": 7, "failed": 0, "total": 7, "percentPassing": 100, "thresholdPercent": 80 },
+  "fixtures": [
+    {
+  "fixture": "01-admin-route-requires-auth/custom-helper",
+  "status": "pass",
+  "realCatches": 1,
+  "byTemplate": [
+    "auth-required"
+  ]
+},
+    {
+  "fixture": "01-admin-route-requires-auth/express-requireAuth",
+  "status": "pass",
+  "realCatches": 1,
+  "byTemplate": [
+    "auth-required"
+  ]
+},
+    {
+  "fixture": "01-admin-route-requires-auth/fastify-app-hook",
+  "status": "pass",
+  "realCatches": 1,
+  "byTemplate": [
+    "auth-required"
+  ]
+},
+    {
+  "fixture": "01-admin-route-requires-auth/nextauth-app-router",
+  "status": "pass",
+  "realCatches": 1,
+  "byTemplate": [
+    "auth-required"
+  ]
+},
+    {
+  "fixture": "02-returns-status-on-bad-body/plain-ts-fastify",
+  "status": "pass",
+  "realCatches": 1,
+  "byTemplate": [
+    "returns-status"
+  ]
+},
+    {
+  "fixture": "02-returns-status-on-bad-body/yup-schema",
+  "status": "pass",
+  "realCatches": 1,
+  "byTemplate": [
+    "returns-status"
+  ]
+},
+    {
+  "fixture": "02-returns-status-on-bad-body/zod-inline",
+  "status": "pass",
+  "realCatches": 1,
+  "byTemplate": [
+    "returns-status"
+  ]
+}
+  ]
+}

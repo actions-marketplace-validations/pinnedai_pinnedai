@@ -541,6 +541,351 @@
       "status": "active",
       "covers": {},
       "badCase": "running `node ./apps/cli/dist/cli.js backtest --help` exited with non-zero status (command broken)"
+    },
+    {
+      "claimId": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-check-guard-removal-help-1ara7k",
+      "prId": "auto-20260523",
+      "claim": {
+        "template": "cli-exits-zero",
+        "route": "node ./apps/cli/dist/cli.js check-guard-removal --help",
+        "raw": "`node ./apps/cli/dist/cli.js check-guard-removal --help` exits 0"
+      },
+      "filename": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-check-guard-removal-help-1ara7k.test.ts",
+      "pinnedAt": "2026-05-23T14:46:38.499Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "running `node ./apps/cli/dist/cli.js check-guard-removal --help` exited with non-zero status (command broken)"
+    },
+    {
+      "claimId": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-install-agent-rules-help-13cqp3",
+      "prId": "auto-20260523",
+      "claim": {
+        "template": "cli-exits-zero",
+        "route": "node ./apps/cli/dist/cli.js install-agent-rules --help",
+        "raw": "`node ./apps/cli/dist/cli.js install-agent-rules --help` exits 0"
+      },
+      "filename": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-install-agent-rules-help-13cqp3.test.ts",
+      "pinnedAt": "2026-05-23T22:53:31.548Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "running `node ./apps/cli/dist/cli.js install-agent-rules --help` exited with non-zero status (command broken)"
+    },
+    {
+      "claimId": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-uninstall-agent-rules-help-2meokm",
+      "prId": "auto-20260523",
+      "claim": {
+        "template": "cli-exits-zero",
+        "route": "node ./apps/cli/dist/cli.js uninstall-agent-rules --help",
+        "raw": "`node ./apps/cli/dist/cli.js uninstall-agent-rules --help` exits 0"
+      },
+      "filename": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-uninstall-agent-rules-help-2meokm.test.ts",
+      "pinnedAt": "2026-05-23T22:53:31.548Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "running `node ./apps/cli/dist/cli.js uninstall-agent-rules --help` exited with non-zero status (command broken)"
+    },
+    {
+      "claimId": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-agent-rules-help-hwam41",
+      "prId": "auto-20260523",
+      "claim": {
+        "template": "cli-exits-zero",
+        "route": "node ./apps/cli/dist/cli.js agent-rules --help",
+        "raw": "`node ./apps/cli/dist/cli.js agent-rules --help` exits 0"
+      },
+      "filename": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-agent-rules-help-hwam41.test.ts",
+      "pinnedAt": "2026-05-23T22:53:31.548Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "running `node ./apps/cli/dist/cli.js agent-rules --help` exited with non-zero status (command broken)"
+    },
+    {
+      "claimId": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-audit-help-1s4sct",
+      "prId": "auto-20260523",
+      "claim": {
+        "template": "cli-exits-zero",
+        "route": "node ./apps/cli/dist/cli.js audit --help",
+        "raw": "`node ./apps/cli/dist/cli.js audit --help` exits 0"
+      },
+      "filename": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-audit-help-1s4sct.test.ts",
+      "pinnedAt": "2026-05-23T23:04:55.194Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "running `node ./apps/cli/dist/cli.js audit --help` exited with non-zero status (command broken)"
+    },
+    {
+      "claimId": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-probe-admin-help-13618s",
+      "prId": "auto-20260523",
+      "claim": {
+        "template": "cli-exits-zero",
+        "route": "node ./apps/cli/dist/cli.js probe-admin --help",
+        "raw": "`node ./apps/cli/dist/cli.js probe-admin --help` exits 0"
+      },
+      "filename": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-probe-admin-help-13618s.test.ts",
+      "pinnedAt": "2026-05-23T23:17:18.949Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "running `node ./apps/cli/dist/cli.js probe-admin --help` exited with non-zero status (command broken)"
+    },
+    {
+      "claimId": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-context-help-1idh72",
+      "prId": "auto-20260523",
+      "claim": {
+        "template": "cli-exits-zero",
+        "route": "node ./apps/cli/dist/cli.js context --help",
+        "raw": "`node ./apps/cli/dist/cli.js context --help` exits 0"
+      },
+      "filename": "auto-20260523-cli-exits-zero-node-apps-cli-dist-cli-js-context-help-1idh72.test.ts",
+      "pinnedAt": "2026-05-23T23:33:06.381Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "running `node ./apps/cli/dist/cli.js context --help` exited with non-zero status (command broken)"
+    },
+    {
+      "claimId": "baseline-20260525-config-invariant-config-github-workflows-pinned-yml-oidc-permission-utap8d",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "config-invariant",
+        "configPath": ".github/workflows/pinned.yml",
+        "expected": "id-token: write",
+        "label": "OIDC permission",
+        "raw": "config-invariant OIDC permission in .github/workflows/pinned.yml"
+      },
+      "filename": "baseline-20260525-config-invariant-config-github-workflows-pinned-yml-oidc-permission-utap8d.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.446Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {
+        "files": [
+          ".github/workflows/pinned.yml"
+        ]
+      },
+      "badCase": "OIDC permission block was removed from `.github/workflows/pinned.yml` (likely AI \"cleanup\" that dropped a load-bearing config)"
+    },
+    {
+      "claimId": "baseline-20260525-config-invariant-config-github-workflows-pinned-yml-auto-commit-permission-1sx0zx",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "config-invariant",
+        "configPath": ".github/workflows/pinned.yml",
+        "expected": "contents: write",
+        "label": "auto-commit permission",
+        "raw": "config-invariant auto-commit permission in .github/workflows/pinned.yml"
+      },
+      "filename": "baseline-20260525-config-invariant-config-github-workflows-pinned-yml-auto-commit-permission-1sx0zx.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.447Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {
+        "files": [
+          ".github/workflows/pinned.yml"
+        ]
+      },
+      "badCase": "auto-commit permission block was removed from `.github/workflows/pinned.yml` (likely AI \"cleanup\" that dropped a load-bearing config)"
+    },
+    {
+      "claimId": "baseline-20260525-config-invariant-config-claude-md-pinned-guardrail-block-8e4egd",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "config-invariant",
+        "configPath": "CLAUDE.md",
+        "expected": "<!-- pinnedai:start -->",
+        "label": "Pinned guardrail block",
+        "raw": "config-invariant Pinned guardrail block in CLAUDE.md"
+      },
+      "filename": "baseline-20260525-config-invariant-config-claude-md-pinned-guardrail-block-8e4egd.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.447Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {
+        "files": [
+          "CLAUDE.md"
+        ]
+      },
+      "badCase": "Pinned guardrail block block was removed from `CLAUDE.md` (likely AI \"cleanup\" that dropped a load-bearing config)"
+    },
+    {
+      "claimId": "baseline-20260525-secret-not-public-secret-not-public-vite-12jyea",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "secret-not-public",
+        "publicPrefix": "VITE_",
+        "secretMarkers": [
+          "SECRET",
+          "TOKEN",
+          "PRIVATE_KEY",
+          "API_KEY"
+        ],
+        "raw": "no VITE_* env var ever contains a secret (SECRET/TOKEN/PRIVATE_KEY/API_KEY)"
+      },
+      "filename": "baseline-20260525-secret-not-public-secret-not-public-vite-12jyea.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.448Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "a `VITE_` env var with a secret-shaped suffix (SECRET, TOKEN, PRIVATE_KEY, API_KEY) was introduced — would leak a server secret into the client bundle"
+    },
+    {
+      "claimId": "baseline-20260525-lockfile-integrity-lockfile-pnpm-lock-yaml-e7a06ea703b2-tb6mqy",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "lockfile-integrity",
+        "lockfilePath": "pnpm-lock.yaml",
+        "expectedSha256": "e7a06ea703b2d8d78f6bedd37f52967ed4baf2d2c74c58e99e7e32053b7cd1e5",
+        "packageJsonSha256": "cf41a8cc4d5c611fb1de5194d3ebac3796538363d919c8e1bae14c85ddbdffad",
+        "raw": "lockfile-integrity pnpm-lock.yaml sha256 e7a06ea703b2"
+      },
+      "filename": "baseline-20260525-lockfile-integrity-lockfile-pnpm-lock-yaml-e7a06ea703b2-tb6mqy.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.467Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {
+        "files": [
+          "pnpm-lock.yaml"
+        ]
+      },
+      "badCase": "`pnpm-lock.yaml` SHA-256 changed (lockfile was regenerated or hand-edited; transitive deps may have shifted)"
+    },
+    {
+      "claimId": "baseline-20260525-cli-exits-zero-pinned-help-1bmxyg",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "cli-exits-zero",
+        "route": "pinned --help",
+        "raw": "`pinned --help` exits 0"
+      },
+      "filename": "baseline-20260525-cli-exits-zero-pinned-help-1bmxyg.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.467Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "running `pinned --help` exited with non-zero status (command broken)"
+    },
+    {
+      "claimId": "baseline-20260525-auth-required-api-adminexport-50hvc0",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "auth-required",
+        "route": "/api/adminExport",
+        "raw": "Auth required on /api/adminExport"
+      },
+      "filename": "baseline-20260525-auth-required-api-adminexport-50hvc0.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.467Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {
+        "routes": [
+          "/api/adminExport"
+        ]
+      },
+      "badCase": "an unauthenticated request to /api/adminExport returned 2xx instead of 401/403"
+    },
+    {
+      "claimId": "baseline-20260525-auth-required-api-admin-19rdd0",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "auth-required",
+        "route": "/api/admin",
+        "raw": "Auth required on /api/admin"
+      },
+      "filename": "baseline-20260525-auth-required-api-admin-19rdd0.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.468Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {
+        "routes": [
+          "/api/admin"
+        ]
+      },
+      "badCase": "an unauthenticated request to /api/admin returned 2xx instead of 401/403"
+    },
+    {
+      "claimId": "baseline-20260525-auth-required-api-projects-1mbbq1",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "auth-required",
+        "route": "/api/projects",
+        "raw": "Auth required on /api/projects"
+      },
+      "filename": "baseline-20260525-auth-required-api-projects-1mbbq1.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.468Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {
+        "routes": [
+          "/api/projects"
+        ]
+      },
+      "badCase": "an unauthenticated request to /api/projects returned 2xx instead of 401/403"
+    },
+    {
+      "claimId": "baseline-20260525-returns-status-api-signup-1l8a3d",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "returns-status",
+        "route": "/api/signup",
+        "method": "POST",
+        "status": 400,
+        "condition": "missing body",
+        "conditionKind": "missing",
+        "field": "body",
+        "raw": "POST /api/signup returns 400 on missing body"
+      },
+      "filename": "baseline-20260525-returns-status-api-signup-1l8a3d.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.468Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {
+        "routes": [
+          "/api/signup"
+        ]
+      },
+      "badCase": "POST /api/signup (missing body) returned a status other than 400 (validation removed or weakened)"
+    },
+    {
+      "claimId": "baseline-20260525-returns-status-api-projects-1v8zcf",
+      "prId": "baseline-20260525",
+      "claim": {
+        "template": "returns-status",
+        "route": "/api/projects",
+        "method": "POST",
+        "status": 400,
+        "condition": "missing body",
+        "conditionKind": "missing",
+        "field": "body",
+        "raw": "POST /api/projects returns 400 on missing body"
+      },
+      "filename": "baseline-20260525-returns-status-api-projects-1v8zcf.test.ts",
+      "pinnedAt": "2026-05-25T21:15:17.468Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {
+        "routes": [
+          "/api/projects"
+        ]
+      },
+      "badCase": "POST /api/projects (missing body) returned a status other than 400 (validation removed or weakened)"
+    },
+    {
+      "claimId": "auto-20260526-cli-exits-zero-node-apps-cli-dist-cli-js-install-claude-help-3o50mm",
+      "prId": "auto-20260526",
+      "claim": {
+        "template": "cli-exits-zero",
+        "route": "node ./apps/cli/dist/cli.js install-claude --help",
+        "raw": "`node ./apps/cli/dist/cli.js install-claude --help` exits 0"
+      },
+      "filename": "auto-20260526-cli-exits-zero-node-apps-cli-dist-cli-js-install-claude-help-3o50mm.test.ts",
+      "pinnedAt": "2026-05-26T15:44:05.712Z",
+      "pinnedBy": "michaelzon",
+      "status": "active",
+      "covers": {},
+      "badCase": "running `node ./apps/cli/dist/cli.js install-claude --help` exited with non-zero status (command broken)"
     }
   ]
 }

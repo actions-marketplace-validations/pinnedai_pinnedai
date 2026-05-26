@@ -60,28 +60,14 @@ const HOOK_BODIES: Record<HookName, string> = {
     `# If the classifier wrote new pin files, stage them so they ship`,
     `# in this same commit.`,
     `git add tests/pinned/ 2>/dev/null || true`,
-    `# GUARD: prevent AI agents from silently weakening pinned tests.`,
-    `# If any *.test.ts file inside tests/pinned/ is in the staged diff`,
-    `# (other than newly-added ones created in THIS commit by auto-protect),`,
-    `# block the commit. The user must explicitly run \`pinned retire\` or`,
-    `# \`pinned generate --force\` to mutate existing pins.`,
-    `# Set PINNEDAI_ALLOW_PIN_EDIT=1 to override for a single commit.`,
-    `if [ "$PINNEDAI_ALLOW_PIN_EDIT" != "1" ]; then`,
-    `  MODIFIED_PINS=$(git diff --cached --name-status -- 'tests/pinned/*.test.ts' 2>/dev/null | awk '$1 == "M" || $1 == "D" {print $2}' || true)`,
-    `  if [ -n "$MODIFIED_PINS" ]; then`,
-    `    echo "" >&2`,
-    `    echo "✗ pinnedai: refusing to commit modifications to existing pinned tests:" >&2`,
-    `    echo "$MODIFIED_PINS" | sed 's/^/    /' >&2`,
-    `    echo "" >&2`,
-    `    echo "  Pinned tests are permanent contracts. To intentionally retire a pin," >&2`,
-    `    echo "  run: pinned retire <claim-id> --reason=\\"...\\"" >&2`,
-    `    echo "  To bypass this guard for one commit: PINNEDAI_ALLOW_PIN_EDIT=1 git commit" >&2`,
-    `    echo "" >&2`,
-    `    echo "  If you're an AI agent and a pinned test is failing, FIX THE APPLICATION CODE" >&2`,
-    `    echo "  — do not modify the pinned test to make it pass." >&2`,
-    `    exit 1`,
-    `  fi`,
-    `fi`,
+    `# GUARD: prevent AI agents from silently removing/modifying/weakening`,
+    `# pinned tests. Delegates to the TS subcommand which has full logic:`,
+    `#   - Allows retire-flow deletions (D paired with retired/<base>.test.ts A)`,
+    `#   - Blocks plain deletions, modifications, and content-weakening (.skip,`,
+    `#     xit, expect(true).toBe(true), expect.assertions(0), early returns)`,
+    `#   - Bypass: PINNEDAI_ALLOW_PIN_EDIT=1 (one commit, no audit)`,
+    `# Exits 2 on violations — block the commit.`,
+    `$PINNED_BIN check-guard-removal --quiet || exit $?`,
     `${MARKER_END}`,
   ].join("\n"),
 
@@ -105,6 +91,9 @@ const HOOK_BODIES: Record<HookName, string> = {
     `fi`,
     `$PINNED_BIN auto-protect --base WORKING_TREE --quiet 2>&1 | grep -v "^◆ pinned" || true`,
     `git add tests/pinned/ 2>/dev/null || true`,
+    `# GUARD: backstop in case pre-commit was bypassed with --no-verify.`,
+    `# Same logic as the pre-commit guard. Push aborts on violations.`,
+    `$PINNED_BIN check-guard-removal --quiet || exit $?`,
     `${MARKER_END}`,
   ].join("\n"),
 
@@ -178,7 +167,8 @@ export type HookInstallResult =
   | { status: "installed"; path: string }
   | { status: "appended"; path: string }
   | { status: "already-installed"; path: string }
-  | { status: "no-git"; path: string };
+  | { status: "no-git"; path: string }
+  | { status: "conflict"; path: string; reason: string };
 
 export function installHook(repoRoot: string, name: HookName): HookInstallResult {
   const gitDir = join(repoRoot, ".git");
@@ -200,6 +190,34 @@ export function installHook(repoRoot: string, name: HookName): HookInstallResult
   const existing = readFileSync(path, "utf8");
   if (existing.includes(startMarker)) {
     return { status: "already-installed", path };
+  }
+  // DEAD-CODE DETECTION: if the existing hook ends with terminal exits
+  // (e.g. a Cipherwake / husky / lefthook block whose case-statement
+  // exits in every branch), appending our block would make it dead code.
+  // Discovered 2026-05-25 when Pinned's pre-push block was appended
+  // after a Cipherwake hook that exited unconditionally — Pinned's
+  // guard-removal check then never ran.
+  const lastLogical = existing
+    .split("\n")
+    .map((l) => l.replace(/^\s*#.*$/, "").trim())
+    .filter((l) => l.length > 0)
+    .slice(-10)
+    .join("\n");
+  const hasTerminalExitPattern =
+    /\b(?:exit|return)\s+\d*\s*$/.test(lastLogical) ||
+    (/\bcase\b/.test(lastLogical) &&
+      /\besac\s*$/.test(lastLogical) &&
+      (lastLogical.match(/\bexit\b/g) ?? []).length >= 2);
+  if (hasTerminalExitPattern) {
+    // Don't silently install dead code. Refuse with clear next-steps.
+    return {
+      status: "conflict",
+      path,
+      reason:
+        "existing hook ends with terminal exit pattern (case/exit) — appending Pinned's block would make it dead code. " +
+        "Manually integrate Pinned's hook content. Run `pinned doctor` for the snippet to splice in, " +
+        "or remove the existing hook (rm .git/hooks/" + name + ") and re-run `pinned init` to write a fresh combined hook.",
+    };
   }
   // Append our block to the existing hook (don't clobber the user's
   // pre-existing logic). Use a no-#! prefix since the shebang is already

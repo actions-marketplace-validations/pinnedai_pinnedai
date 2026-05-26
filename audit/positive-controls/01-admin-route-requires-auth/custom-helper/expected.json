@@ -1,0 +1,10 @@
+{
+  "category": "admin-route-requires-auth",
+  "variation": "custom-helper",
+  "fixSubject": "fix: gate admin export behind ensureAuthed()",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["auth-required"],
+    "containingFile": "src/routes/admin.ts"
+  }
+}

@@ -4,6 +4,7 @@ import { App } from "./App.js";
 import { ForNextjs } from "./seo/ForNextjs.js";
 import { ForClaudeCode } from "./seo/ForClaudeCode.js";
 import { ForCursor } from "./seo/ForCursor.js";
+import { Proof } from "./seo/Proof.js";
 import "./styles.css";
 
 // Lightweight pathname-based routing. v0.1 trades full SSR/SSG for
@@ -19,6 +20,8 @@ function route() {
       return <ForClaudeCode />;
     case "/for-cursor":
       return <ForCursor />;
+    case "/proof":
+      return <Proof />;
     default:
       return <App />;
   }

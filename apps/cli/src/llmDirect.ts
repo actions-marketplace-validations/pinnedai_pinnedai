@@ -45,18 +45,46 @@ Output schema: { "claims": Claim[] }
 Output format: JSON, no prose, no markdown fences.`;
 
 export type DirectResult =
-  | { ok: true; claims: Claim[]; provider: "anthropic" | "openai" }
+  | { ok: true; claims: Claim[]; provider: ByokProvider }
   | { ok: false; reason: "byok-not-activated" }
-  | { ok: false; reason: "byok-key-missing"; provider: "anthropic" | "openai" }
+  | { ok: false; reason: "byok-key-missing"; provider: ByokProvider }
+  | { ok: false; reason: "claude-code-not-installed" }
   | { ok: false; reason: "error"; error: string };
 
-export type ByokProvider = "anthropic" | "openai";
+// Provider list — adding a value here requires:
+//   1. activeByokProvider() to accept the new string
+//   2. Either a new call*() function below OR shared dispatch logic
+//   3. The same expansion in llmBugFixPropose.ts (mirror provider list)
+// "claude-code"   — shells out to the locally-installed `claude` CLI;
+//                   no API key, no quota, uses the user's Claude Pro/Max
+//                   subscription. See [[llm-access-claude-code-passthrough]].
+// "github-models" — Microsoft's free LLM tier; OAuth via GitHub token in
+//                   PINNEDAI_GITHUB_TOKEN. OpenAI-compatible API shape.
+export type ByokProvider = "anthropic" | "openai" | "claude-code" | "github-models";
+
+/**
+ * Hard kill switch for security-paranoid users. When `PINNEDAI_NO_LLM=1`
+ * (or any truthy value) is set in the env, NO LLM call ever fires from
+ * Pinned regardless of BYOK env vars being present. This is the
+ * checkbox CISOs and audit teams want — a single, observable env var
+ * that proves the LLM path can't reach over the network from this
+ * machine. See [[three-mode-llm-architecture]] memory: local-only is
+ * a hard gate.
+ */
+export function llmDisabled(): boolean {
+  const raw = (process.env.PINNEDAI_NO_LLM ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
 
 // Read PINNEDAI_BYOK to determine which provider the customer has
 // explicitly chosen. Anything else (empty, "off", typo) = no BYOK.
+// Returns null if PINNEDAI_NO_LLM=1 (hard kill switch wins).
 export function activeByokProvider(): ByokProvider | null {
+  if (llmDisabled()) return null;
   const raw = (process.env.PINNEDAI_BYOK ?? "").trim().toLowerCase();
   if (raw === "anthropic" || raw === "openai") return raw;
+  if (raw === "claude-code" || raw === "claudecode") return "claude-code";
+  if (raw === "github-models" || raw === "github" || raw === "gh-models") return "github-models";
   return null;
 }
 
@@ -70,10 +98,18 @@ export async function extractDirect(prBody: string): Promise<DirectResult> {
     if (!key) return { ok: false, reason: "byok-key-missing", provider };
     return callAnthropic(key, prBody);
   }
-  // provider === "openai"
-  const key = process.env.PINNEDAI_OPENAI_KEY;
-  if (!key) return { ok: false, reason: "byok-key-missing", provider };
-  return callOpenAI(key, prBody);
+  if (provider === "openai") {
+    const key = process.env.PINNEDAI_OPENAI_KEY;
+    if (!key) return { ok: false, reason: "byok-key-missing", provider };
+    return callOpenAI(key, prBody);
+  }
+  if (provider === "claude-code") {
+    return callClaudeCode(prBody);
+  }
+  // provider === "github-models"
+  const token = process.env.PINNEDAI_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+  if (!token) return { ok: false, reason: "byok-key-missing", provider };
+  return callGitHubModels(token, prBody);
 }
 
 async function callAnthropic(
@@ -125,7 +161,7 @@ async function callOpenAI(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: process.env.PINNEDAI_OPENAI_MODEL || "gpt-4o-mini",
         temperature: 0,
         response_format: { type: "json_object" },
         messages: [
@@ -149,6 +185,93 @@ async function callOpenAI(
     return { ok: true, claims: parseClaimsJson(text), provider: "openai" };
   } catch (e) {
     return { ok: false, reason: "error", error: `openai call failed: ${String(e)}` };
+  }
+}
+
+// Claude Code passthrough — shells out to the locally-installed `claude`
+// CLI. Uses the user's existing Claude Pro/Max subscription quota; no
+// API key, no Pinned billing, no Anthropic billing visible to us. The
+// trade is: process startup overhead (~300-500ms vs ~100ms API) and
+// dependency on a CLI we don't control. Detect-only-on-opt-in keeps
+// the surprise factor at zero — user explicitly chooses claude-code.
+async function callClaudeCode(prBody: string): Promise<DirectResult> {
+  try {
+    const { spawn } = await import("node:child_process");
+    const claudeBin = process.env.PINNEDAI_CLAUDE_BIN || "claude";
+    const combined = `${SYSTEM_PROMPT}\n\n${prBody}`;
+    const proc = spawn(claudeBin, ["-p", combined], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+    proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    const exitCode: number = await new Promise((resolve) => {
+      proc.on("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "ENOENT") resolve(-127);
+        else resolve(-1);
+      });
+      proc.on("exit", (code) => resolve(code ?? -1));
+    });
+    if (exitCode === -127) {
+      return { ok: false, reason: "claude-code-not-installed" };
+    }
+    if (exitCode !== 0) {
+      return {
+        ok: false,
+        reason: "error",
+        error: `claude-code exit ${exitCode}: ${stderr.slice(0, 200)}`,
+      };
+    }
+    return { ok: true, claims: parseClaimsJson(stdout), provider: "claude-code" };
+  } catch (e) {
+    return { ok: false, reason: "error", error: `claude-code call failed: ${String(e)}` };
+  }
+}
+
+// GitHub Models — Microsoft's free LLM tier, OpenAI-compatible API at
+// models.github.ai. Auth: GitHub token (Pinned reads PINNEDAI_GITHUB_TOKEN
+// first, falls back to the standard GITHUB_TOKEN env var). Token can be
+// a personal access token or GitHub Actions OIDC-issued token. Free tier
+// has per-user rate limits but no $$$ — good fit for the "we supply LLM
+// on us" Free tier backend.
+async function callGitHubModels(
+  token: string,
+  prBody: string
+): Promise<DirectResult> {
+  try {
+    const model = process.env.PINNEDAI_GITHUB_MODEL || "gpt-4o-mini";
+    const res = await fetch("https://models.github.ai/inference/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: prBody },
+        ],
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      return {
+        ok: false,
+        reason: "error",
+        error: `github-models ${res.status}: ${detail.slice(0, 200)}`,
+      };
+    }
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const text = data.choices?.[0]?.message?.content ?? "";
+    return { ok: true, claims: parseClaimsJson(text), provider: "github-models" };
+  } catch (e) {
+    return { ok: false, reason: "error", error: `github-models call failed: ${String(e)}` };
   }
 }
 

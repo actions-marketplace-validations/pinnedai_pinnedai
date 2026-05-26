@@ -2,14 +2,30 @@
   "status": "green",
   "failingCount": 0,
   "failingClaimIds": [],
-  "totalPins": 39,
+  "totalPins": 58,
   "safetyNotes": 0,
   "recentlyAddedCount": 1,
-  "recentlyAddedAt": "2026-05-22T21:22:24.798Z",
+  "recentlyAddedAt": "2026-05-26T15:44:05.757Z",
   "suggestedCount": 0,
-  "lastCheckedSha": "2307e0de054afa4e4143ab0d569827e251cc0977",
-  "lastCheckedDirtyHash": "6e215242d26d2b96",
-  "updatedAt": "2026-05-23T03:49:42.821Z",
-  "lastAutoProtectAt": "2026-05-21T21:31:27.799Z",
-  "lastAddNotifiedAt": "2026-05-21T04:03:18.023Z"
+  "lastCheckedSha": "4e2e0fcbdab6efa32de2b3c84b93b88d5da52507",
+  "lastCheckedDirtyHash": "d1cb3efb48ef8b75",
+  "updatedAt": "2026-05-26T15:44:05.757Z",
+  "lastAutoProtectAt": "2026-05-26T15:35:19.295Z",
+  "lastAddNotifiedAt": "2026-05-25T21:15:17.542Z",
+  "recentlyAddedSummaries": [
+    "`node ./apps/cli/dist/cli.js install-claude --help` runs without crashing (AI can't break the CLI command)"
+  ],
+  "lastSavedAt": "2026-05-25T21:15:17.542Z",
+  "lastSavedCount": 11,
+  "lastSavedSummaries": [
+    "GitHub Action permission for Pinned (AI can't disable Pinned's CI guard by editing the workflow)",
+    "GitHub Action permission to add new pins (AI can't strip Pinned's ability to grow on each PR)",
+    "AI-coder rules in CLAUDE.md (AI can't silently delete the rules that tell it to respect pins + read .pinned/ai-lessons.md)",
+    "no `VITE_*` env var leaks a secret to the client bundle",
+    "Lockfile changes can't sneak past package.json bumps (catches AI regenerating the lockfile and silently shifting transitive deps)"
+  ],
+  "guardsSavedLifetime": 11,
+  "lastLessonAt": "2026-05-25T21:15:17.545Z",
+  "lastLessonSummary": "Do not weaken pinned tests to make CI pass.",
+  "lessonsLifetime": 6
 }

@@ -46,6 +46,14 @@ export { generateLockfileIntegrityTest } from "./templates/lockfileIntegrity.js"
 export { generateConfigInvariantTest } from "./templates/configInvariant.js";
 export { generatePackageExportsExistTest } from "./templates/packageExportsExist.js";
 export { generateSecretNotPublicTest } from "./templates/secretNotPublic.js";
+export { generateUrlLiteralPreservedTest } from "./templates/urlLiteralPreserved.js";
+export { generateTscCleanTest } from "./templates/tscClean.js";
+export { generateModuleExportStableTest } from "./templates/moduleExportStable.js";
+export { generateReactRouteRegisteredTest } from "./templates/reactRouteRegistered.js";
+export { generateWebhookHandlerExistsTest } from "./templates/webhookHandlerExists.js";
+export { generateImportPathResolvesTest } from "./templates/importPathResolves.js";
+export { generateChangedLiteralPreservedTest } from "./templates/changedLiteralPreserved.js";
+export { generateFormSubmitErrorHandlingTest } from "./templates/formSubmitErrorHandling.js";
 export type { GeneratedTest, GenerateOpts } from "./templates/rateLimit.js";
 
 import type { Claim } from "./claimParser.js";
@@ -66,6 +74,14 @@ import { generateLockfileIntegrityTest } from "./templates/lockfileIntegrity.js"
 import { generateConfigInvariantTest } from "./templates/configInvariant.js";
 import { generatePackageExportsExistTest } from "./templates/packageExportsExist.js";
 import { generateSecretNotPublicTest } from "./templates/secretNotPublic.js";
+import { generateUrlLiteralPreservedTest } from "./templates/urlLiteralPreserved.js";
+import { generateTscCleanTest } from "./templates/tscClean.js";
+import { generateModuleExportStableTest } from "./templates/moduleExportStable.js";
+import { generateReactRouteRegisteredTest } from "./templates/reactRouteRegistered.js";
+import { generateWebhookHandlerExistsTest } from "./templates/webhookHandlerExists.js";
+import { generateImportPathResolvesTest } from "./templates/importPathResolves.js";
+import { generateChangedLiteralPreservedTest } from "./templates/changedLiteralPreserved.js";
+import { generateFormSubmitErrorHandlingTest } from "./templates/formSubmitErrorHandling.js";
 
 // Convenience dispatcher — given any Claim, pick the right generator.
 // Keeps callers (CLI, landing demo, hosted Worker) DRY.
@@ -103,6 +119,22 @@ export function generateTest(claim: Claim, opts: GenerateOpts): GeneratedTest {
       return generatePackageExportsExistTest(claim, opts);
     case "secret-not-public":
       return generateSecretNotPublicTest(claim, opts);
+    case "url-literal-preserved":
+      return generateUrlLiteralPreservedTest(claim, opts);
+    case "tsc-clean":
+      return generateTscCleanTest(claim, opts);
+    case "module-export-stable":
+      return generateModuleExportStableTest(claim, opts);
+    case "react-route-registered":
+      return generateReactRouteRegisteredTest(claim, opts);
+    case "webhook-handler-exists":
+      return generateWebhookHandlerExistsTest(claim, opts);
+    case "import-path-resolves":
+      return generateImportPathResolvesTest(claim, opts);
+    case "changed-literal-preserved":
+      return generateChangedLiteralPreservedTest(claim, opts);
+    case "form-submit-error-handling":
+      return generateFormSubmitErrorHandlingTest(claim, opts);
   }
   // Exhaustiveness guard — if a new Claim variant is added without a
   // case here, TS will fail to compile this assignment with a clear

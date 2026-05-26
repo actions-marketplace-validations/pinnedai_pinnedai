@@ -43,10 +43,16 @@ inputs:
     default: "true"
   byok:
     description: |
-      Bring-your-own-key provider. Set to "anthropic" or "openai" to route LLM
-      extraction through your own provider key instead of pinnedai's hosted Worker.
-      Requires a paid plan AND the matching secret: PINNEDAI_ANTHROPIC_KEY or
-      PINNEDAI_OPENAI_KEY. Leave empty (default) to use the hosted Worker.
+      Bring-your-own-key LLM provider. Set to "anthropic", "openai",
+      "claude-code", or "github-models" to route the LLM proposer step
+      through your own credentials. Requires the matching secret in
+      your repo's settings:
+        - anthropic     → PINNEDAI_ANTHROPIC_KEY
+        - openai        → PINNEDAI_OPENAI_KEY
+        - claude-code   → no key (uses local `claude` CLI if available)
+        - github-models → PINNEDAI_GITHUB_TOKEN (or GITHUB_TOKEN)
+      Leave empty (default) to run in deterministic mode only — the
+      regex-based detectors still run, just no LLM proposer.
     required: false
     default: ""
 

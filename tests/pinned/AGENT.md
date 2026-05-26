@@ -13,8 +13,7 @@
 ### Before marking a task complete
 
 1. Run the relevant test suite (`pnpm test`, `npm test`, etc.).
-2. Run `npm run pinned:test` (or `npx pinnedai test` if no script
-   exists).
+2. Run `npx pinnedai test` to verify Pinned guards still pass.
 3. If any test in `tests/pinned/*.test.ts` fails, **do not skip or
    delete it**. It fails because a PR description from the past
    claimed something that you've now regressed. Fix the regression,

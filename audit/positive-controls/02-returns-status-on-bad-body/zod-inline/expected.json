@@ -1,0 +1,10 @@
+{
+  "category": "returns-status-on-bad-body",
+  "variation": "zod-inline",
+  "fixSubject": "fix: validate POST /api/projects body with Zod",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["returns-status"],
+    "containingFile": "src/routes/projects.ts"
+  }
+}

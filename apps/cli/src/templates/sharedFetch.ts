@@ -187,4 +187,33 @@ function pinnedAssertNonProductionUrl(url: string, riskyTemplate: string): void 
   }
 }
 // ─────────────────────────────────────────────────────────────────────
+
+// ─── Static-mode helper (shared by auth-required, rate-limit, idempotent,
+//     permission-required when carrying a staticVerify fingerprint) ──
+// Reads the source file the protection was added to, strips comments,
+// normalizes whitespace/trailing commas (so lint reformatters don't
+// produce false-positive catches per [[lint-format-false-positives]])
+// and asserts the captured signature substring is still present.
+// Returns null on pass; on fail returns a structured detail object the
+// caller turns into a template-specific repair prompt + throws.
+import { readFileSync, existsSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+function pinnedStaticVerify(
+  sv: { filePath: string; signature: string }
+): { kind: "file-missing" } | { kind: "signature-missing" } | null {
+  const abs = resolvePath(process.cwd(), sv.filePath);
+  if (!existsSync(abs)) return { kind: "file-missing" };
+  const raw = readFileSync(abs, "utf8");
+  const content = raw
+    .split("\\n")
+    .map((l: string) => l.replace(/\\/\\/.*$/, ""))
+    .join("\\n")
+    .replace(/\\/\\*[\\s\\S]*?\\*\\//g, "");
+  const normalize = (s: string) => s.replace(/\\s+/g, "").replace(/,(?=[)\\]}])/g, "");
+  if (!normalize(content).includes(normalize(sv.signature))) {
+    return { kind: "signature-missing" };
+  }
+  return null;
+}
+// ─────────────────────────────────────────────────────────────────────
 `;

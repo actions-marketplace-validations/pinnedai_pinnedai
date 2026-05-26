@@ -1,0 +1,10 @@
+{
+  "category": "admin-route-requires-auth",
+  "variation": "nextauth-app-router",
+  "fixSubject": "fix: require NextAuth session on /api/admin/export",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["auth-required"],
+    "containingFile": "src/app/api/admin/export/route.ts"
+  }
+}

@@ -57,6 +57,8 @@ export function generateReturnsStatusTest(
 // ═══════════════════════════════════════════════════════════════
 
 import { describe, it, expect, beforeAll } from "vitest";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 ${PINNED_FETCH_HELPER_SRC}
 const PREVIEW_URL = process.env.PREVIEW_URL;
 const ROUTE = ${JSON.stringify(claim.route)};
@@ -67,6 +69,11 @@ const ORIGINAL_PR = ${JSON.stringify(opts.prId)};
 const ORIGINAL_CLAIM = ${JSON.stringify(claim.raw)};
 const BAD_CASE = ${JSON.stringify(badCaseForClaim(claim))};
 const TEST_FILENAME = ${JSON.stringify(filename)};
+// Static-mode fingerprint — present when this pin was generated
+// from the diff-aware validation detector. Lets the test verify
+// the captured validation signature is still in source even
+// without a live server. Same shape as the auth-required template.
+const STATIC_VERIFY = ${JSON.stringify(claim.staticVerify ?? null)};
 
 function repairPrompt(actualStatus: number): string {
   return [
@@ -121,6 +128,76 @@ describe("pinned: returns-status " + METHOD + " " + ROUTE + " → " + EXPECTED_S
     }
     expect(res.status).toBe(EXPECTED_STATUS);
   });
+
+  // Static-mode check — same role as the auth-required template's.
+  // Reads the route's source file and asserts the validation
+  // signature is still present. Catches deletions/refactors of the
+  // validation code even when PREVIEW_URL is unset.
+  it.skipIf(!STATIC_VERIFY)(
+    "source still contains the validation signature captured at pin time",
+    () => {
+      const sv = STATIC_VERIFY!;
+      const abs = resolvePath(process.cwd(), sv.filePath);
+      if (!existsSync(abs)) {
+        throw new Error(
+          [
+            "",
+            "═══ PINNED FAILURE — paste this into Claude Code / Cursor ═══",
+            "",
+            "Pinned returns-status pin failed (static check):",
+            "  Claim: " + ORIGINAL_CLAIM,
+            "  Original PR: " + ORIGINAL_PR,
+            "  Route: " + METHOD + " " + ROUTE,
+            "  Expected file: " + sv.filePath + " (missing)",
+            "",
+            "The handler file that originally contained the validation no",
+            "longer exists. Either it was renamed/moved, or the validation",
+            "was removed along with the file.",
+            "═══════════════════════════════════════════════════════════════",
+            "",
+          ].join("\\n")
+        );
+      }
+      const raw = readFileSync(abs, "utf8");
+      // Comment-stripped match — see the auth-required template for
+      // the same reasoning. "// TODO: add Zod schema" in a parent
+      // file should not falsely satisfy a Zod-signature pin.
+      const content = raw
+        .split("\\n")
+        .map((l: string) => l.replace(/\\/\\/.*$/, ""))
+        .join("\\n")
+        .replace(/\\/\\*[\\s\\S]*?\\*\\//g, "");
+      // Format-normalize: lint reformat (Prettier) collapses multi-line
+      // expressions to single line, making the captured signature
+      // text-differ from parent content even when the logic is the same.
+      // See [[lint-format-false-positives]].
+      const normalizeForSig = (s: string) => s.replace(/\\s+/g, "").replace(/,(?=[)\\]}])/g, "");
+      const contentN = normalizeForSig(content);
+      const sigN = normalizeForSig(sv.signature);
+      if (!contentN.includes(sigN)) {
+        throw new Error(
+          [
+            "",
+            "═══ PINNED FAILURE — paste this into Claude Code / Cursor ═══",
+            "",
+            "Pinned returns-status pin failed (static check):",
+            "  Claim: " + ORIGINAL_CLAIM,
+            "  Original PR: " + ORIGINAL_PR,
+            "  Route: " + METHOD + " " + ROUTE,
+            "  File: " + sv.filePath,
+            "  Missing validation signature: " + sv.signature,
+            "",
+            "The validation that protects " + ROUTE + " was removed or",
+            "rewritten. The original fix introduced the snippet above; it's",
+            "no longer present in the file.",
+            "═══════════════════════════════════════════════════════════════",
+            "",
+          ].join("\\n")
+        );
+      }
+      expect(contentN.includes(sigN)).toBe(true);
+    }
+  );
 });
 `;
 

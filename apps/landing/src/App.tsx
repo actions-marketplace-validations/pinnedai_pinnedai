@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Demo } from "./Demo.js";
+import { WaitlistForm } from "./WaitlistForm.js";
 
 export function App() {
   const [showWelcome, setShowWelcome] = useState(false);
@@ -12,11 +13,11 @@ export function App() {
     <div className="page">
       {showWelcome ? (
         <div className="welcome-banner">
-          <strong>🎉 Welcome to pinnedai Pro!</strong>
+          <strong>🎉 Welcome to pinnedai!</strong>
           <span>
-            Pro is now active for your GitHub org. Open a PR with a claim — Pinned
-            will detect your subscription via OIDC and pin without limits. No license
-            key, no API key, no extra config required.
+            Thanks for joining the free beta. Run <code>npx pinned init --auto</code> in
+            your repo to install Pinned's guards, AI lessons, and Guard Integrity
+            blocker. No account or API key needed.
           </span>
           <button
             type="button"
@@ -33,13 +34,13 @@ export function App() {
             <span className="dot" />
             <span className="brand-name">pinnedai</span>
           </div>
-          <h1>Permanent guardrails for AI-coded apps.</h1>
+          <div className="status-pill">Free beta · Founder Pro waitlist open</div>
+          <h1>Stop your AI coder from repeating bugs.</h1>
           <p className="tagline-sub">
-            <strong>Pinned remembers the promises your app must keep — auth, billing, rate limits, webhooks, permissions, and critical flows — and blocks future AI edits from quietly breaking them.</strong>
+            <strong>When your AI fixes a bug, drops auth headers, weakens error handling, skips a test, or breaks an app promise, Pinned captures the pattern, creates a guard, audits similar code paths, and keeps future AI edits from making the same mistake again.</strong>
           </p>
           <p className="lede">
-            Cursor writes the code. CodeRabbit reviews it. <strong>Pinned turns the promises in your PR description — "auth required on /api/admin", "rate-limits /api/users to 60/min", "Stripe webhook idempotent by event_id" — into permanent Vitest tests</strong> that re-run on every commit.
-            When a future AI change touches protected behavior, CI fails loudly with a back-reference to the original PR and a paste-ready repair prompt for Cursor or Claude Code.
+            Bug found → guard built → siblings audited → future edits checked → AI lesson saved.
           </p>
           <div className="install">
             <code>npx pinnedai</code>
@@ -116,11 +117,12 @@ export function App() {
               <h3>Pinned verifies the promise — continuously</h3>
               <p>
                 Every commit re-runs the pinned tests in the background. Most
-                of the time you see <code>✓ 312 consecutive successful runs</code>{" "}
-                — uptime, not noise. If a future change ever breaks a
-                protected promise, CI fails loudly and points at the
-                original PR + a paste-ready repair prompt for Cursor /
-                Claude Code.
+                of the time you see <code>✓ guards passing</code> — uptime,
+                not noise. If a future change ever breaks a protected
+                promise, CI fails loudly with the test file path + the
+                original PR ID so you can find the contract that was
+                broken. Richer PR comments with paste-ready repair prompts
+                are on the v0.2 roadmap.
               </p>
             </div>
           </div>
@@ -441,57 +443,42 @@ npx pinnedai protect    # turn risks into pins</pre>
         <div className="container">
           <h2>Pricing</h2>
           <div className="founder-banner">
-            <strong>◆ Early users get founder pricing, locked while active</strong>
-            <span>$9.99/mo for users who back Pinned before the wider launch. Standard Pro is $19/mo. Founder pricing is locked while your subscription remains active. Fair-use limits apply.</span>
+            <strong>◆ Free protects your repo locally. Pro improves your AI coding system across repos.</strong>
+            <span>Free beta is generous and local-first. Founder Pro is a waitlist for when we open paid (no payment now, no card — we're gauging interest in the features below). Sign up to be first in line + locked into founder pricing when paid opens.</span>
           </div>
           <div className="tiers">
             <div className="tier">
-              <div className="tier-name">Free</div>
+              <div className="tier-name">Free beta</div>
               <div className="tier-price">$0</div>
+              <div className="tier-subtitle">For individual AI coders and early teams.</div>
               <ul>
-                <li><strong>Unlimited pins</strong> on every repo</li>
-                <li>All 8 templates (web + CLI + library)</li>
-                <li><strong>Safety Pass</strong> (deterministic AI-mistake scan)</li>
-                <li>Claude Code statusline + failure-only chat hook</li>
-                <li><strong>500 LLM calls/mo</strong> on public · <strong>100/mo</strong> on private</li>
-                <li>No API key needed (OIDC keyless)</li>
+                <li><strong>Unlimited local guards</strong> — no cap on tests/pinned/</li>
+                <li><strong>Unlimited local AI Lessons</strong> — Claude/Cursor read them before edits</li>
+                <li><strong>Guard Integrity</strong> — blocks AI from delete/skip/weaken</li>
+                <li>Replay-verified bug-fix guards</li>
+                <li>Learned-pattern audits (high-confidence sibling candidates)</li>
+                <li>Pre-commit + pre-push hooks, statusline integration</li>
+                <li>Report-only CI (run <code>npx pinned guard</code> in your own CI)</li>
+                <li>Optional BYOK AI proposer (limited during beta)</li>
+                <li>No API key required; no fixtures; one command setup</li>
               </ul>
             </div>
             <div className="tier tier-popular">
-              <div className="tier-name">Founder Pro <span className="tier-badge">early access</span></div>
-              <div className="tier-price">$9.99<span>/mo</span></div>
-              <div className="tier-subtitle">Founder pricing is locked while your subscription remains active. Standard Pro is $19/mo. Fair-use limits apply.</div>
+              <div className="tier-name">Founder Pro <span className="tier-badge">waitlist · coming soon</span></div>
+              <div className="tier-price">tbd<span> · waitlist</span></div>
+              <div className="tier-subtitle">For builders and teams that want Pinned automatic across repos and PRs. Locked founder pricing when paid opens. No payment now.</div>
               <ul>
-                <li><strong>Unlimited active pins</strong></li>
-                <li><strong>5,000 LLM calls / month</strong> (fair use)</li>
-                <li>Safety Pass <code>--summarize</code> (LLM-backed)</li>
-                <li>Optional BYOK (Anthropic / OpenAI) for privacy</li>
-                <li>Custom claim templates</li>
-                <li><code>@pinned fix</code> deep review (v0.2)</li>
+                <li><strong>Everything in Free, plus:</strong></li>
+                <li>PR comments with paste-ready repair prompts</li>
+                <li>Cloud proof / history dashboard (90-day rollups)</li>
+                <li>Cross-repo AI lessons (rules learned in one repo apply to all)</li>
+                <li>Hosted AI analysis (no API key required)</li>
+                <li>AI / provider mistake analytics (which agent makes which mistakes)</li>
+                <li>Managed CI enforcement policies</li>
+                <li>Custom guard templates</li>
+                <li>Team policies + audit log</li>
               </ul>
-              {/*
-                Pro tier CTA. The real Stripe payment link goes here at
-                launch. Until then we expose a clearly-marked placeholder
-                URL so visitors aren't sent to the Free install when they
-                meant to subscribe. The `data-placeholder` attribute makes
-                the placeholder state queryable from launch-readiness
-                checks (the K.x distribution audit reads it).
-              */}
-              <a
-                className="tier-cta tier-cta-placeholder"
-                href="https://buy.stripe.com/PLACEHOLDER_PINNED_PRO"
-                data-placeholder="stripe-link"
-                onClick={(e) => {
-                  e.preventDefault();
-                  alert(
-                    "Stripe Pro subscription link not live yet — coming with launch. " +
-                    "For now, run `npx pinnedai init` to install Free; Pro upgrade " +
-                    "auto-detects your org via OIDC once the subscription is active."
-                  );
-                }}
-              >
-                Subscribe — Stripe link launching soon →
-              </a>
+              <WaitlistForm />
             </div>
             <div className="tier">
               <div className="tier-name">Team</div>
@@ -545,15 +532,15 @@ npx pinnedai protect    # turn risks into pins</pre>
               fail when nothing's actually broken</strong> — cold-start preview,
               expired test credentials, network blips.
               <br /><br />
-              Mitigations we ship: <strong>double-confirm</strong> (every catch
-              is re-run twice with a 500ms gap before being reported as a
-              failure), <strong>per-pin flakiness tracking</strong> (a pin that
-              flaps gets quarantined), <strong>silent skip</strong> when{" "}
+              Mitigations we ship today: <strong>double-confirm</strong> (every
+              catch is re-run twice with a 500ms gap before being reported as a
+              failure), <strong>silent skip</strong> when{" "}
               <code>PREVIEW_URL</code> isn't set (no false alarm when there's
-              nothing to test against), and an <strong>{" "}
-              <code>X-Pinned-Test: 1</code> header</strong> on every request so
+              nothing to test against), and an{" "}
+              <strong><code>X-Pinned-Test: 1</code> header</strong> on every request so
               your app can exclude Pinned traffic from rate limits, billing-tier
-              counters, and analytics.
+              counters, and analytics. Per-pin flakiness quarantine is on the
+              v0.2 roadmap.
               <br /><br />
               If a catch ever looks wrong, re-run{" "}
               <code>npx vitest run &lt;file&gt;</code> manually before changing

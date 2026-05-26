@@ -25,3 +25,9 @@ audit/oss-sweep/.clones/
 
 # Local dogfood notes
 .dogfood-claims.md
+.openai-key
+
+# Pinned
+.pinned/byok.json
+.pinned/lessons.json
+.pinned/cache/

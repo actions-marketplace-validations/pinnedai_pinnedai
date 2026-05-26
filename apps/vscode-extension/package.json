@@ -2,7 +2,7 @@
   "name": "pinnedai-vscode",
   "displayName": "pinnedai — Pin PR claims as permanent CI tests",
   "description": "Status-bar indicator + command palette integration for the pinnedai CLI. Works in VS Code, Cursor, and any VS Code-family editor.",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "publisher": "pinnedai",
   "engines": {
     "vscode": "^1.85.0"
@@ -35,11 +35,23 @@
     "workspaceContains:tests/pinned/.registry.json",
     "workspaceContains:.pinnedai/config.json"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "Pinned reads .registry.json and shells out to the local `pinned` binary you installed. It does not execute repository code."
+    },
+    "virtualWorkspaces": false
+  },
   "contributes": {
     "commands": [
       {
         "command": "pinnedai.review",
         "title": "Pinned: Review now",
+        "category": "Pinned"
+      },
+      {
+        "command": "pinnedai.showInfo",
+        "title": "Pinned: Show info panel",
         "category": "Pinned"
       },
       {

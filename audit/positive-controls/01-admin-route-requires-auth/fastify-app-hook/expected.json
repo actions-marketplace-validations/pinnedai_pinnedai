@@ -1,0 +1,10 @@
+{
+  "category": "admin-route-requires-auth",
+  "variation": "fastify-app-hook",
+  "fixSubject": "fix: add preHandler auth hook on admin routes",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["auth-required"],
+    "containingFile": "src/routes/admin.ts"
+  }
+}

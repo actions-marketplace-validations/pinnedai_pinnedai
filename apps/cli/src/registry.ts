@@ -244,6 +244,24 @@ export function coverageFromClaim(claim: Claim): PinCoverage {
       // just won't surface in findTouchedPins(). v0.2 will accept
       // explicit covers via a generator-emitted header annotation.
       return {};
+    case "url-literal-preserved":
+      return { files: [claim.filePath] };
+    case "tsc-clean":
+      // Repo-wide: any TS source change could affect tsc. We don't
+      // try to map all .ts files; pin still runs in CI.
+      return {};
+    case "module-export-stable":
+      return { files: [claim.modulePath] };
+    case "react-route-registered":
+      return { files: [claim.routerFilePath] };
+    case "webhook-handler-exists":
+      return { files: [claim.filePath] };
+    case "import-path-resolves":
+      return { files: [claim.sourceFilePath] };
+    case "changed-literal-preserved":
+      return { files: [claim.filePath] };
+    case "form-submit-error-handling":
+      return { files: [claim.filePath] };
   }
 }
 
@@ -382,6 +400,22 @@ function claimLabel(c: Claim): string {
       return `\`exports ${escapeMarkdownCell(c.modulePath)}\` (${c.exports.length} symbol${c.exports.length === 1 ? "" : "s"})`;
     case "secret-not-public":
       return `\`no ${escapeMarkdownCell(c.publicPrefix)}*<secret>\` (server secrets stay private)`;
+    case "url-literal-preserved":
+      return `\`url ${escapeMarkdownCell(c.urlLiteral)}\` in \`${escapeMarkdownCell(c.filePath)}\``;
+    case "tsc-clean":
+      return `\`tsc --noEmit clean\` (${escapeMarkdownCell(c.tsconfigPath)})`;
+    case "module-export-stable":
+      return `\`export ${escapeMarkdownCell(c.exportName)}\` from \`${escapeMarkdownCell(c.modulePath)}\``;
+    case "react-route-registered":
+      return `\`<Route ${escapeMarkdownCell(c.routePath)}>\` in \`${escapeMarkdownCell(c.routerFilePath)}\``;
+    case "webhook-handler-exists":
+      return `\`${escapeMarkdownCell(c.provider)} webhook\` at \`${escapeMarkdownCell(c.filePath)}\``;
+    case "import-path-resolves":
+      return `\`import ${escapeMarkdownCell(c.importPath)}\` from \`${escapeMarkdownCell(c.sourceFilePath)}\``;
+    case "changed-literal-preserved":
+      return `\`${escapeMarkdownCell(c.shape)}: ${escapeMarkdownCell(c.newValue)}\` in \`${escapeMarkdownCell(c.filePath)}\``;
+    case "form-submit-error-handling":
+      return `\`form error-handling\` in \`${escapeMarkdownCell(c.filePath)}\``;
   }
 }
 

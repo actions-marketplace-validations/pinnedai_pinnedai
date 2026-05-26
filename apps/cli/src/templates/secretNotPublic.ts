@@ -149,14 +149,28 @@ describe("pinned: secret-not-public " + PUBLIC_PREFIX, () => {
     const files: string[] = [];
     walk("", cwd, files);
 
-    // Build a regex that matches PUBLIC_PREFIX followed by 1-80 chars
-    // (the var name) containing any secret marker as a substring.
-    // We escape regex meta chars in PUBLIC_PREFIX defensively.
+    // Build a regex that matches PUBLIC_PREFIX at an identifier
+    // boundary, followed by zero-or-more WORD_ segments, a secret
+    // marker as a complete segment, and an optional trailing suffix.
+    //
+    // The two boundary guards are load-bearing:
+    //   - Lookbehind (?<![A-Z0-9_]): prefix must NOT be in the middle
+    //     of a longer identifier. Without this, ORG_INVITE_SECRET
+    //     matches as VITE_SECRET (the substring starts at "V" inside
+    //     "INVITE") — a real FP we hit on Quantasyte's invite-token code.
+    //   - Lookahead (?![A-Z0-9]): marker must be followed by _ or
+    //     end-of-name. Without this, API_KEYS_ENABLED matches as
+    //     API_KEY — another real Quantasyte FP (feature-flag bool).
     const escapedPrefix = PUBLIC_PREFIX.replace(/[.*+?^\${}()|[\\]\\\\]/g, "\\\\$&");
     const markerAlt = SECRET_MARKERS
       .map((m) => m.replace(/[.*+?^\${}()|[\\]\\\\]/g, "\\\\$&"))
       .join("|");
-    const re = new RegExp(escapedPrefix + "[A-Z0-9_]{0,80}(?:" + markerAlt + ")[A-Z0-9_]{0,80}", "g");
+    const re = new RegExp(
+      "(?<![A-Z0-9_])" +
+        escapedPrefix +
+        "(?:[A-Z0-9]+_)*?(?:" + markerAlt + ")(?:_[A-Z0-9_]*)?(?![A-Z0-9])",
+      "g"
+    );
 
     const matches: Match[] = [];
     for (const file of files) {
@@ -166,9 +180,25 @@ describe("pinned: secret-not-public " + PUBLIC_PREFIX, () => {
       } catch {
         continue;
       }
-      // Skip the pin test files themselves — they reference PUBLIC_PREFIX
-      // and SECRET_MARKERS in constants and would self-match.
+      // Skip every pin test file — they reference PUBLIC_PREFIX and
+      // SECRET_MARKERS in constants and would self-match. Production
+      // pins live under tests/pinned/; the backtest harness places
+      // generated pins under tests/pinned-backtest/. Without the
+      // second skip, the bug-fix benchmark always self-fails on the
+      // generated test's own constants — a real bug we hit during
+      // the v0.1 calibration run.
       if (file.startsWith("tests/pinned/")) continue;
+      if (file.startsWith("tests/pinned-backtest/")) continue;
+      if (file.endsWith(".test.ts") || file.endsWith(".test.tsx") || file.endsWith(".test.js")) {
+        // Belt-and-suspenders: a test file with this template's own
+        // shape is almost certainly a pinned test in a non-standard
+        // location (custom test dir, copied fixture, etc.). Skipping
+        // all *.test.* files is too broad (would miss real leaks in
+        // application tests) — but skipping tests that explicitly
+        // self-reference the template name is correct.
+        const head = content.slice(0, 2048);
+        if (head.includes("pinned: secret-not-public") || head.includes("secret-not-public pin")) continue;
+      }
       const lines = content.split("\\n");
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];

@@ -69,6 +69,9 @@ const ORIGINAL_PR = ${JSON.stringify(opts.prId)};
 const ORIGINAL_CLAIM = ${JSON.stringify(claim.raw)};
 const BAD_CASE = ${JSON.stringify(badCaseForClaim(claim))};
 const TEST_FILENAME = ${JSON.stringify(filename)};
+// Static-mode fingerprint — present when generated from a diff-aware
+// bug-fix detector that observed the authorization check being added.
+const STATIC_VERIFY = ${JSON.stringify(claim.staticVerify ?? null)};
 
 // Per-direction fixture credentials. Each is gated by its own env
 // var — missing fixtures cause that direction to skip, not fail.
@@ -107,6 +110,59 @@ describe("pinned: permission-required " + ROLE + " on " + ROUTE, () => {
   const forceRequire = process.env.PINNED_REQUIRE_PREVIEW_URL === "1";
   const wrongRoleMissing = !TOKEN_WRONG_ROLE;
   const rightRoleMissing = !TOKEN_RIGHT_ROLE;
+
+  it.skipIf(!STATIC_VERIFY)(
+    "source still contains the authorization signature captured at pin time",
+    () => {
+      const sv = STATIC_VERIFY!;
+      const result = pinnedStaticVerify(sv);
+      if (result?.kind === "file-missing") {
+        throw new Error([
+          "",
+          "═══ PINNED FAILURE — paste this into Claude Code / Cursor ═══",
+          "",
+          "Pinned permission-required pin failed (static check):",
+          "  Claim: " + ORIGINAL_CLAIM,
+          "  Original PR: " + ORIGINAL_PR,
+          "  Route: " + ROUTE,
+          "  Expected file: " + sv.filePath + " (missing)",
+          "",
+          "The file that contained the authorization check no longer exists.",
+          "Either it was renamed/moved, or the check was removed with the file.",
+          "",
+          "If this is an intentional refactor, retire the pin:",
+          "  pinned retire " + ORIGINAL_PR + " --reason=\\"refactor: handler moved\\"",
+          "═══════════════════════════════════════════════════════════════",
+          "",
+        ].join("\\n"));
+      }
+      if (result?.kind === "signature-missing") {
+        throw new Error([
+          "",
+          "═══ PINNED FAILURE — paste this into Claude Code / Cursor ═══",
+          "",
+          "Pinned permission-required pin failed (static check):",
+          "  Claim: " + ORIGINAL_CLAIM,
+          "  Original PR: " + ORIGINAL_PR,
+          "  Route: " + ROUTE,
+          "  Role: " + ROLE,
+          "  File: " + sv.filePath,
+          "  Missing authorization signature: " + sv.signature,
+          "",
+          "The role/permission check that protects " + ROUTE + " has been",
+          "removed or changed. The original fix introduced the snippet",
+          "above; it's no longer present in the file.",
+          "",
+          "Restore the authorization check, OR — if the route legitimately no",
+          "longer needs role-gating — retire the pin:",
+          "  pinned retire " + ORIGINAL_PR + " --reason=\\"...\\"",
+          "═══════════════════════════════════════════════════════════════",
+          "",
+        ].join("\\n"));
+      }
+      expect(result).toBeNull();
+    }
+  );
 
   beforeAll(() => {
     if (previewMissing && forceRequire) {

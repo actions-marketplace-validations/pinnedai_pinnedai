@@ -1,0 +1,10 @@
+{
+  "category": "returns-status-on-bad-body",
+  "variation": "yup-schema",
+  "fixSubject": "fix: validate signup body with Yup schema",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["returns-status"],
+    "containingFile": "src/routes/signup.ts"
+  }
+}

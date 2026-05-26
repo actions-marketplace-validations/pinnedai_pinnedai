@@ -85,6 +85,45 @@ Started **2026-05-18**. Target: working npm package + GitHub Action + landing pa
 - [ ] Goal: 3 design partners signed up by end of week.
 - [ ] Monitor OpenAI bill daily during the first week; ratchet Free quota down if a single repo dominates spend.
 
+---
+
+## Pre-launch product pivot (2026-05-23 — supersedes the "PR claims → tests" wedge framing)
+
+The first ~5 weeks built the deterministic engine (templates, registry, scan-diff, auto-detection, GitHub Action). Calibration with `pinned backtest` on real OSS + Quantasyte revealed the engine works but the **wedge needs to shift**: random commit sweeps produced 0 practical "saves" (only lockfile noise, since demoted). The strongest provable framing is:
+
+> **Every bug fix becomes a verified regression guard, and Pinned finds sibling spots that may have the same bug.**
+
+Anchor memories: [[five-strong-saves-launch-gate]], [[fifteen-positive-controls-launch-spec]], [[llm-proposer-deterministic-verifier-split]], [[three-mode-llm-architecture]].
+
+**Launch gate**: ≥10 of 15 positive-control fixtures must produce a real-catch verdict (fail at parent, pass at fix), AND ≥5 quantasyte fix commits must produce real-catches with LLM-assisted detection.
+
+### Shipped this session (2026-05-23)
+
+- [x] **Bug-fix benchmark mode** (`pinned backtest --mode=bug-fix`) — mines fix-shaped commits, generates pins at the fix, replays against parent. "Real catch" = fail-at-parent + pass-at-fix.
+- [x] **Lockfile-integrity demoted** to high-signal triggers only (silent regen / lockfile removed / pm switched). Routine dep updates suppressed by package.json-delta gating.
+- [x] **pnpm-workspace.yaml + lerna.json support** across all detectors (cli/exports/secret/auth). Closed a silent dogfood gap — pinnedai's own CLI binary was undetectable from its own repo before this.
+- [x] **Two real FPs in `secret-not-public`** template fixed (`ORG_INVITE_SECRET`/`INVITE_SECRET` substring matching `VITE_SECRET`; `VITE_API_KEYS_ENABLED` matching `API_KEY`). Added identifier-boundary lookbehind + complete-segment lookahead.
+- [x] **Diff-aware `auth-required` detector + static-mode template** — pure regex over `git diff`, captures the auth-check signature at pin time, runs without a live server. Foundation for the LLM-proposer (which generalizes across naming conventions).
+
+### To ship before v0.1 launch (in order)
+
+- [ ] **15 positive-control fixtures** (task #7) — small Express/Supabase repos with parent-buggy + child-fixed commits across the 8 promise categories (auth, role, tenant scoping, tier cap, webhook idempotency, rate limit, billing downgrade, duplicate prevention). Live in `audit/positive-controls/`. Each fixture must produce a real-catch verdict under `pinned backtest --mode=bug-fix`.
+- [ ] **Router→controller resolution** (task #13) — `detectReturnsStatusPins` only fires when validation is inline in route-handler files; misses Express MVC / NestJS / Quantasyte's shape where the validation lives in `controllers/` imported by a thin router file. Without this, several of the 15 fixtures (tier-cap, duplicate-prevention, quota-bypass) can't generate the right pin shape.
+- ~~**LLM-as-proposer wiring**~~ — **DESCOPED FROM PRE-LAUNCH** (2026-05-23). Deterministic detectors already produce 8 catches on quantasyte (past the [[five-strong-saves-launch-gate]] threshold), so LLM isn't required to prove launch value. BYOK path shipped as Pro-only opt-in (`PINNEDAI_BYOK=anthropic|openai`, see `apps/cli/src/llmBugFixPropose.ts`). Worker-mediated free-tier LLM deferred to v0.2 (task #21). Marketing pivot: *"Pinned doesn't need an LLM to enforce guards."* Lower cost, higher trust, cleaner positioning.
+- [ ] **Sibling-bug discovery** (task #12) — after a fix→guard is replay-verified, scan the repo for other surfaces matching the same pattern but missing the same protection signature. Surface as **opt-in** "Related guards" suggestions, never auto-pin. Reuses `AUTH_CHECK_PATTERNS` (already exported from `scanDiff.ts` for this purpose). GPT framing: *"◆ Pinned · VERIFIED GUARD … Related protection opportunities: + /api/admin/users + /api/admin/billing"*.
+- [ ] **Guard-removal blocker** (task #8) — independent, high-frequency "save" event. Detect when a commit deletes/skips/weakens any `tests/pinned/*` file or removes Pinned from CI. Block via pre-commit + pre-push + exit code 2. Allow `pinned approve-removal <id> --reason "..."` with audit trail. AI agents "fix failing tests" by deleting them constantly — this is one of the most frequent purchaseable moments.
+- [ ] **Final launch backtest** (task #11) — run benchmark against (a) all 15 fixtures, (b) quantasyte with LLM enabled. Honest scorecard: "N/15 fixtures produced real-catch; M quantasyte fix-commits produced real-catches; K required manual template tuning." Threshold for launch: ≥10/15 + ≥5 quantasyte. Below threshold → do not announce launch; iterate on detectors / LLM prompt / templates.
+
+### What changes in marketing/positioning when this lands
+
+Old (current landing copy):
+- *"Turn PR claims into permanent CI tests."*
+
+New (per [[fifteen-positive-controls-launch-spec]] + GPT framing):
+- *"Every bug fix becomes a permanent regression guard — and Pinned finds sibling spots that may have the same bug."*
+
+Statusline + status messages also shift: `◆ Pinned · 34 pins · 1 to review` → outcome-based states `PASS / SAVED / COVERED / BLOCK / VERIFIED GUARD`. Spec'd but not yet implemented; goes with the launch.
+
 ## Deferred to v0.1.1 (post-launch)
 
 - Per-org dashboard (if any users actually ask for it; otherwise keep it CLI-only).
@@ -119,13 +158,17 @@ The README's CLI table + `What you can claim` section both invite issue requests
 
 ### Other v0.2+ expansion paths
 
-1. **LLM diff-to-claim inference**: when PR description is garbage, infer claims FROM the diff (the "Inferred" framing — best v0.2 feature add)
+1. ~~**LLM diff-to-claim inference**~~ — **PROMOTED TO PRE-LAUNCH** as task #10 ("LLM-as-proposer"). Same feature, was previously framed as a v0.2 add when the wedge was "PR claims → tests"; now load-bearing for the bug-fix-mode benchmark since regex misses custom-naming helpers like Quantasyte's `authHeaders()`.
 2. **Custom claim templates**: customers define their own template patterns
 3. **Org policies**: "every PR must pin ≥1 claim" (Team tier feature)
 4. **Slack alerts** on claim breaks in main (Team tier)
 5. **Multi-language**: today Vitest/Node only. Add Python/pytest, Go/test, Ruby/rspec.
 6. **Self-hosted runner** (Enterprise tier)
 7. **SOC 2 / ISO 27001 audit-trail export** — every claim becomes a signed change-management evidence entry
+8. ~~**Router→controller import resolution for `returns-status` detector**~~ — **PROMOTED TO PRE-LAUNCH** as task #13. Today the detector only finds inline validation in `routes/`, `app/api/`, `pages/api/` files. Architectures where validation lives in `controllers/` (Express MVC, NestJS, quantasyte's shape) are missed because the route is mounted in a separate router file. Without this, `returns-status` (one of the 8 high-value promise categories from [[fifteen-positive-controls-launch-spec]]) can't fire on a huge slice of real repos. Fix: TS import resolution from router → controller (or a regex+heuristic compromise), then check the controller for validation calls.
+9. **Rush / Deno monorepo support**: today we read `package.json#workspaces` (npm/yarn/bun), `pnpm-workspace.yaml`, and `lerna.json`. Rush (`rush.json` → `projects: [{ packageName, projectFolder }]`) and Deno workspaces (`deno.json` → `workspace: [...]`) are out of scope for v0.1 — niche and different shape. Add when a real user asks.
+10. ~~**Lateral pattern propagation from a single fix**~~ — **PROMOTED TO PRE-LAUNCH** (see the "Pre-launch product pivot" section above). The wedge requires it: a fix→guard that ONLY protects the one route the user fixed isn't a strong enough purchaseable moment vs. a fix→guard + sibling protections across the repo. Tracked as task #12 (deterministic v1 shipped).
+11. **LLM-based sibling discovery (v2)**: today's sibling discovery (task #12) is deterministic — walks repo files, filters by path-prefix + regex pattern absence. Works for obvious siblings (`/api/admin/*` after a catch on `/api/admin/export`). Misses semantic siblings where the path doesn't obviously match (e.g., `/api/reports/internal-stats` is admin-shaped but doesn't share the prefix). LLM v2 would: walk repo, send file paths + headers (not full content — minimum-necessary context per [[three-mode-llm-architecture]]) to LLM, ask "given the catch on `<triggerFile>` for template `<X>`, which of these files look semantically similar?" — receives ranked list of high-confidence siblings. Separate LLM call from the bug-fix proposer; deferred until the bug-fix LLM is proven and we have evidence regex-v1 siblings are missing meaningful FNs.
 
 ---
 

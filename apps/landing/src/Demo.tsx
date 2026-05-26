@@ -357,5 +357,11 @@ function failureBlock(claim: Claim, filename: string): string {
 
   ${back}
 `;
+    default:
+      return `${head} > pinned: claim guarded
+  AssertionError: protected behavior changed in a way the pinned test no longer accepts
+
+  ${back}
+`;
   }
 }

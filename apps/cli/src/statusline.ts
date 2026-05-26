@@ -113,6 +113,36 @@ export type LastStatus = {
   // (newest first). Used by `pinned status` and `pinned catches` to
   // show what regressions were caught and when.
   catchHistory?: CatchRecord[];
+  // ----- AI Lessons surface (post-2026-05-23 pivot) -----
+  // lessonsLifetime: total entries currently in .pinned/ai-lessons.md.
+  //                  Used in the calm-green baseline display
+  //                  ("PASS · N guards · M lessons") so the AI memory
+  //                  surface is always visible to the user.
+  // lastLessonAt:    ISO timestamp of the most recent lesson append.
+  //                  Drives the transient "LEARNED · <summary>" state.
+  // lastLessonSummary: plain-English summary of the most recent
+  //                  lesson (from LessonInput.plainEnglish). Shown
+  //                  in the statusline for LEARNED_WINDOW_MS after
+  //                  the append.
+  lessonsLifetime?: number;
+  lastLessonAt?: string;
+  lastLessonSummary?: string;
+  // ----- BLOCK event (Guard Integrity violation refused) -----
+  lastBlockAt?: string;
+  lastBlockSummary?: string;
+  blocksLifetime?: number;
+  // ----- AUDIT event (pinned audit --learned ran) -----
+  lastAuditAt?: string;
+  lastAuditCount?: number;
+  auditsLifetime?: number;
+  // ----- SAVED event (auto-protect added new pins) -----
+  lastSavedAt?: string;
+  lastSavedCount?: number;
+  lastSavedSummaries?: string[];
+  guardsSavedLifetime?: number;
+  // ----- COVERED event (vitest pin suite passed) -----
+  lastCoveredAt?: string;
+  lastCoveredCount?: number;
 };
 
 // One regression catch event.
@@ -137,6 +167,20 @@ export type CatchRecord = {
   // satisfying catches ("Pinned re-caught a regression that was
   // fixed once already").
   bugFixOrigin?: boolean;
+  // Layman-friendly catch description — derived deterministically
+  // from the claim shape at record-time via deriveCatchImpact(). All
+  // three fields are optional for backward compat with cache
+  // entries written before the impact translator existed. See
+  // `apps/cli/src/catchImpact.ts` for the mapping rules.
+  severity?: "critical" | "high" | "medium" | "low" | "info";
+  // 3-6 word title for the layman-friendly catch listing ("Admin
+  // dashboard auth check" instead of "auth required on * (middleware)
+  // (added in this fix)").
+  laymanHeadline?: string;
+  // 1-2 sentence plain-English consequence: "Without this protection,
+  // ..." — designed for the non-developer founder reading their
+  // statusline / dashboard, not the dev reading the test file.
+  userImpact?: string;
 };
 
 export const CATCH_HISTORY_LIMIT = 50;
@@ -148,7 +192,30 @@ export const CATCH_HISTORY_LIMIT = 50;
 // info." Single-line fallback shows under the same window when no
 // summaries are available.
 export const RECENTLY_ADDED_TTL_MS = 3 * 60 * 1000; // 3 minutes
-export const RECENTLY_CAUGHT_TTL_MS = 30 * 60 * 1000; // 30 minutes
+// Catch-event decay (per GPT spec + user request). Tiered:
+//   - 0-24h:  prominent, emphasized in statusline ("VERIFIED · N catches today")
+//   - 24-72h: subtle, shown as historical context ("last catch 2d ago")
+//   - >72h:   hidden from statusline (still visible in catchHistory / proof log)
+// The goal: catches are event badges, not the permanent status. Coverage
+// (N guards) is the permanent value signal so a quiet week doesn't make
+// users think "why am I paying?" They see "PASS · 34 guards" baseline.
+export const CATCH_PROMINENT_WINDOW_MS = 24 * 60 * 60 * 1000;  // 24h
+export const CATCH_SUBTLE_WINDOW_MS = 72 * 60 * 60 * 1000;     // 72h
+// Back-compat alias — keep referencing this from older code paths.
+// The catch-celebration branch in formatStatusline now uses the
+// prominent window directly.
+export const RECENTLY_CAUGHT_TTL_MS = CATCH_PROMINENT_WINDOW_MS;
+
+// LEARNED transient — how long the "Pinned · LEARNED · <summary>" line
+// stays prominent in the statusline after a lesson is added. After
+// this window, the baseline shows "PASS · N guards · M lessons" with
+// the lessons count as the persistent signal. Per the
+// [[strategic-pivot-guard-integrity]] statusline UX rule.
+export const LEARNED_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
+export const BLOCK_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
+export const SAVED_WINDOW_MS = 90 * 1000; // 90 seconds
+export const COVERED_WINDOW_MS = 60 * 1000; // 60 seconds
+export const AUDIT_WINDOW_MS = 90 * 1000; // 90 seconds
 
 // Chat-hook auto-protect throttle. The UserPromptSubmit hook fires
 // on every chat turn — we only kick a background auto-protect once
@@ -176,6 +243,237 @@ const C = {
   red: "\x1b[31m",
   cyan: "\x1b[36m",
 };
+
+// Record catches from a bug-fix benchmark run into the target repo's
+// status cache so its statusline reflects "Pinned just caught N
+// regressions in this repo." Idempotent: dedupes by claimId so
+// re-running the benchmark doesn't double-count.
+//
+// `dir` is typically `<targetRepo>/tests/pinned/` — same location
+// readLastStatus/writeLastStatus operate on. If the dir doesn't
+// exist (target repo never installed Pinned), this is a no-op. The
+// caller decides whether to create the dir or skip.
+export type BenchmarkCatchInput = {
+  claimId: string;
+  claimText?: string;
+  template?: string;
+  route?: string;
+  badCase?: string;
+  // The fix commit sha this catch was learned from. Recorded as
+  // originPr in CatchRecord since the benchmark works on commits,
+  // not PRs — using "commit:<sha>" prefix for clarity.
+  fixSha?: string;
+  // Optional pre-computed layman impact fields. When supplied, they
+  // get stored in CatchRecord; otherwise we leave them undefined and
+  // the renderer falls back to the technical description. Caller
+  // (cli.ts bug-fix mode) populates these via deriveCatchImpact().
+  severity?: "critical" | "high" | "medium" | "low" | "info";
+  laymanHeadline?: string;
+  userImpact?: string;
+};
+
+// Record a SAVED event — auto-protect just added N new pins to the
+// registry. Drives the transient "Pinned · SAVED · N guard(s)
+// created" statusline display. Mirrors the existing
+// recentlyAddedSummaries surface but uses the unified event-naming
+// the strategic pivot statusline UX section locks in.
+export function recordGuardsSaved(
+  dir: string,
+  saved: { count: number; summaries?: string[] }
+): void {
+  if (!existsSync(dir)) return;
+  const existing = readLastStatus(dir) ?? {
+    status: "green" as const,
+    failingCount: 0,
+    failingClaimIds: [],
+    totalPins: 0,
+    updatedAt: new Date().toISOString(),
+  };
+  const next: LastStatus = {
+    ...existing,
+    lastSavedAt: new Date().toISOString(),
+    lastSavedCount: saved.count,
+    lastSavedSummaries: saved.summaries?.slice(0, 5),
+    guardsSavedLifetime: (existing.guardsSavedLifetime ?? 0) + saved.count,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    writeFileSync(join(dir, STATUS_FILENAME), JSON.stringify(next, null, 2));
+  } catch { /* */ }
+}
+
+// Record a COVERED event — vitest just ran the pinned suite and
+// N guards passed. Drives transient
+// "Pinned · COVERED · N guards passed" statusline display.
+// Distinct from VERIFIED (which is the running streak counter).
+export function recordCoveredRun(
+  dir: string,
+  covered: { passedCount: number }
+): void {
+  if (!existsSync(dir)) return;
+  const existing = readLastStatus(dir) ?? {
+    status: "green" as const,
+    failingCount: 0,
+    failingClaimIds: [],
+    totalPins: 0,
+    updatedAt: new Date().toISOString(),
+  };
+  const next: LastStatus = {
+    ...existing,
+    lastCoveredAt: new Date().toISOString(),
+    lastCoveredCount: covered.passedCount,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    writeFileSync(join(dir, STATUS_FILENAME), JSON.stringify(next, null, 2));
+  } catch { /* */ }
+}
+
+// Record an AUDIT event — "pinned audit --learned" ran and looked
+// at N candidate sibling files. Drives transient
+// "Pinned · AUDIT · N sibling risks checked" display.
+export function recordSiblingAudit(
+  dir: string,
+  audit: { count: number }
+): void {
+  if (!existsSync(dir)) return;
+  const existing = readLastStatus(dir) ?? {
+    status: "green" as const,
+    failingCount: 0,
+    failingClaimIds: [],
+    totalPins: 0,
+    updatedAt: new Date().toISOString(),
+  };
+  const next: LastStatus = {
+    ...existing,
+    lastAuditAt: new Date().toISOString(),
+    lastAuditCount: audit.count,
+    auditsLifetime: (existing.auditsLifetime ?? 0) + 1,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    writeFileSync(join(dir, STATUS_FILENAME), JSON.stringify(next, null, 2));
+  } catch { /* */ }
+}
+
+// Record a BLOCK event in the status cache. Called by
+// check-guard-removal (and any other guard-integrity refusal path)
+// before exiting non-zero, so the statusline shows
+// "Pinned · BLOCK · <evidence>" for ~2 min — visible AHA moment
+// per [[tier-model-final-2026-05-23]].
+export function recordGuardBlocked(
+  dir: string,
+  block: { summary: string }
+): void {
+  if (!existsSync(dir)) return;
+  const existing = readLastStatus(dir) ?? {
+    status: "green" as const,
+    failingCount: 0,
+    failingClaimIds: [],
+    totalPins: 0,
+    updatedAt: new Date().toISOString(),
+  };
+  const next: LastStatus = {
+    ...existing,
+    lastBlockAt: new Date().toISOString(),
+    lastBlockSummary: block.summary,
+    blocksLifetime: (existing.blocksLifetime ?? 0) + 1,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    writeFileSync(join(dir, STATUS_FILENAME), JSON.stringify(next, null, 2));
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Record a LEARNED event in the status cache. Called by the AI
+// Lessons writer (aiLessons.appendLesson) after a successful append,
+// so the statusline shows "Pinned · LEARNED · <summary>" for the
+// next LEARNED_WINDOW_MS. Also bumps the lifetime count used by the
+// calm-green baseline display.
+//
+// Per [[tier-model-final-2026-05-23]]: the plain-English summary is
+// the load-bearing UX — don't show "1 new lesson", show what was
+// actually learned.
+export function recordLessonLearned(
+  dir: string,
+  lesson: { plainEnglish: string; totalCount?: number }
+): void {
+  if (!existsSync(dir)) return;
+  const existing = readLastStatus(dir) ?? {
+    status: "green" as const,
+    failingCount: 0,
+    failingClaimIds: [],
+    totalPins: 0,
+    updatedAt: new Date().toISOString(),
+  };
+  const next: LastStatus = {
+    ...existing,
+    lastLessonAt: new Date().toISOString(),
+    lastLessonSummary: lesson.plainEnglish,
+    lessonsLifetime: lesson.totalCount ?? (existing.lessonsLifetime ?? 0) + 1,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    writeFileSync(join(dir, STATUS_FILENAME), JSON.stringify(next, null, 2));
+  } catch {
+    /* best-effort — don't break the lesson append on cache write failure */
+  }
+}
+
+export function recordBenchmarkCatches(
+  dir: string,
+  catches: BenchmarkCatchInput[]
+): { recorded: number; skipped: number } {
+  if (catches.length === 0) return { recorded: 0, skipped: 0 };
+  if (!existsSync(dir)) return { recorded: 0, skipped: 0 };
+  const existing = readLastStatus(dir) ?? {
+    status: "green" as const,
+    failingCount: 0,
+    failingClaimIds: [],
+    totalPins: 0,
+    updatedAt: new Date().toISOString(),
+  };
+  const now = new Date().toISOString();
+  const history = existing.catchHistory ?? [];
+  const knownIds = new Set(history.map((r) => r.claimId));
+  let recorded = 0;
+  let skipped = 0;
+  for (const c of catches) {
+    if (knownIds.has(c.claimId)) {
+      skipped += 1;
+      continue;
+    }
+    history.unshift({
+      caughtAt: now,
+      claimId: c.claimId,
+      claimText: c.claimText,
+      template: c.template,
+      route: c.route,
+      badCase: c.badCase,
+      originPr: c.fixSha ? `commit:${c.fixSha.slice(0, 8)}` : undefined,
+      bugFixOrigin: true,
+      severity: c.severity,
+      laymanHeadline: c.laymanHeadline,
+      userImpact: c.userImpact,
+    });
+    knownIds.add(c.claimId);
+    recorded += 1;
+  }
+  // Cap history. Newest first.
+  const trimmed = history.slice(0, CATCH_HISTORY_LIMIT);
+  const updated: LastStatus = {
+    ...existing,
+    catchHistory: trimmed,
+    breaksCaught: (existing.breaksCaught ?? 0) + recorded,
+    lastCatchAt: recorded > 0 ? now : existing.lastCatchAt,
+    lastCatchClaimId: recorded > 0 ? catches[0].claimId : existing.lastCatchClaimId,
+    updatedAt: now,
+  };
+  writeLastStatus(dir, updated);
+  return { recorded, skipped };
+}
 
 export function readLastStatus(dir: string): LastStatus | null {
   const path = join(dir, STATUS_FILENAME);
@@ -386,7 +684,23 @@ export function formatStatusline(opts: {
   const minimal = opts.statuslineMode === "minimal";
   const prefix = `${c.dim}◆ pinned${c.reset}`;
   if (totalPins === 0) {
-    // Calm "0 pins" state — hide in minimal mode.
+    // Even with no active pins, recent catches (from a bug-fix
+    // benchmark recording, or from a guard run that hasn't created
+    // pins yet) deserve surfacing — that's the "Pinned just caught
+    // something" event the statusline exists to celebrate. Falls
+    // through to the catch-tier branch logic below.
+    if (lastStatus?.lastCatchAt) {
+      const age = (opts.now ?? Date.now()) - new Date(lastStatus.lastCatchAt).getTime();
+      if (Number.isFinite(age) && age >= 0 && age < CATCH_PROMINENT_WINDOW_MS) {
+        const cutoff = (opts.now ?? Date.now()) - CATCH_PROMINENT_WINDOW_MS;
+        const recentCount = (lastStatus.catchHistory ?? []).filter((r) => {
+          const t = new Date(r.caughtAt).getTime();
+          return Number.isFinite(t) && t >= cutoff;
+        }).length || 1;
+        const noun = recentCount === 1 ? "catch" : "catches";
+        return `${prefix} · ${c.green}★ ${recentCount} ${noun} today${c.reset}`;
+      }
+    }
     return minimal ? "" : `${prefix} · 0 pins`;
   }
   if (!lastStatus) {
@@ -399,14 +713,74 @@ export function formatStatusline(opts: {
   if (lastStatus.status === "failing" && lastStatus.failingCount > 0) {
     return `${prefix} · ${totalPins} pins · ${c.red}✗ ${lastStatus.failingCount} broken${c.reset}`;
   }
-  // 2. "Caught N break" — transient celebration when a regression was
-  // recently caught. Decays after RECENTLY_CAUGHT_TTL_MS. Wording per
-  // GPT guidance: "caught", not "saves" — concrete + dev-friendly.
+  // 2. "Caught N break" — tiered celebration:
+  //    0-24h:  ★ caught N today (prominent green)
+  //    24-72h: last catch Nd ago (subtle, falls through to calm-green
+  //            with appended footer rather than being the headline)
+  //    >72h:   hidden — calm-green baseline only ("PASS · N guards")
+  //
+  // The 24h window counts catches from catchHistory (deduped by
+  // claim/time) so multiple recent catches show "★ caught 3 today"
+  // instead of "caught 1 break" which buried the magnitude.
+  // 1.4. Fresh BLOCK — transient line for 2 min after Guard Integrity
+  // refused a commit. Most urgent value event after broken pins.
+  // Per [[strategic-pivot-guard-integrity]] this is the headline catch.
+  if (lastStatus.lastBlockAt && lastStatus.lastBlockSummary) {
+    const blockAge = now - new Date(lastStatus.lastBlockAt).getTime();
+    if (Number.isFinite(blockAge) && blockAge >= 0 && blockAge < BLOCK_WINDOW_MS) {
+      const truncated = lastStatus.lastBlockSummary.length > 50
+        ? lastStatus.lastBlockSummary.slice(0, 47) + "..."
+        : lastStatus.lastBlockSummary;
+      return `${prefix} · ${totalPins} pins · ${c.red}⛔ blocked: ${truncated}${c.reset}`;
+    }
+  }
+  // 1.45. SAVED — auto-protect just added pins. Transient celebration.
+  if (lastStatus.lastSavedAt && typeof lastStatus.lastSavedCount === "number" && lastStatus.lastSavedCount > 0) {
+    const age = now - new Date(lastStatus.lastSavedAt).getTime();
+    if (Number.isFinite(age) && age >= 0 && age < SAVED_WINDOW_MS) {
+      const n = lastStatus.lastSavedCount;
+      return `${prefix} · ${totalPins} pins · ${c.green}+${n} new guard${n === 1 ? "" : "s"}${c.reset}`;
+    }
+  }
+  // 1.47. AUDIT — `pinned audit --learned` just ran. Transient.
+  if (lastStatus.lastAuditAt && typeof lastStatus.lastAuditCount === "number") {
+    const age = now - new Date(lastStatus.lastAuditAt).getTime();
+    if (Number.isFinite(age) && age >= 0 && age < AUDIT_WINDOW_MS) {
+      const n = lastStatus.lastAuditCount;
+      return `${prefix} · ${totalPins} pins · ${c.cyan}checked ${n} similar code path${n === 1 ? "" : "s"}${c.reset}`;
+    }
+  }
+  // 1.48. COVERED — vitest pin suite passed. Brief celebration.
+  if (lastStatus.lastCoveredAt && typeof lastStatus.lastCoveredCount === "number") {
+    const age = now - new Date(lastStatus.lastCoveredAt).getTime();
+    if (Number.isFinite(age) && age >= 0 && age < COVERED_WINDOW_MS) {
+      const n = lastStatus.lastCoveredCount;
+      return `${prefix} · ${totalPins} pins · ${c.green}${n} guard${n === 1 ? "" : "s"} passed${c.reset}`;
+    }
+  }
+  // 1.5. Fresh AI Lesson — transient LEARNED line for 2 min after
+  // a lesson lands. Shows the plain-English summary so the user sees
+  // WHAT was learned, not just "1 new lesson". See [[tier-model-final-2026-05-23]].
+  if (lastStatus.lastLessonAt && lastStatus.lastLessonSummary) {
+    const lessonAge = now - new Date(lastStatus.lastLessonAt).getTime();
+    if (Number.isFinite(lessonAge) && lessonAge >= 0 && lessonAge < LEARNED_WINDOW_MS) {
+      return `${prefix} · ${totalPins} pins · ${c.cyan}learned: ${lastStatus.lastLessonSummary}${c.reset}`;
+    }
+  }
   if (lastStatus.lastCatchAt) {
     const age = now - new Date(lastStatus.lastCatchAt).getTime();
-    if (Number.isFinite(age) && age >= 0 && age < RECENTLY_CAUGHT_TTL_MS) {
-      return `${prefix} · ${totalPins} pins · ${c.green}🛟 caught 1 break${c.reset}`;
+    if (Number.isFinite(age) && age >= 0 && age < CATCH_PROMINENT_WINDOW_MS) {
+      // Count catches within the prominent window
+      const cutoff = now - CATCH_PROMINENT_WINDOW_MS;
+      const recentCount = (lastStatus.catchHistory ?? []).filter((r) => {
+        const t = new Date(r.caughtAt).getTime();
+        return Number.isFinite(t) && t >= cutoff;
+      }).length || 1; // at least 1 since lastCatchAt itself is within window
+      const noun = recentCount === 1 ? "catch" : "catches";
+      return `${prefix} · ${totalPins} pins · ${c.green}★ ${recentCount} ${noun} today${c.reset}`;
     }
+    // 24-72h: subtle footer, falls through to calm-green below.
+    // We compute a label here and tack it on later in the calm branch.
   }
   // 2.5. Protected behavior touched — diff-intersection alert. This
   // is the Guardrail positioning's load-bearing surface: when Claude/
@@ -422,7 +796,12 @@ export function formatStatusline(opts: {
     });
     if (cachedChanges !== null && cachedChanges.touchedPins.length > 0) {
       const n = cachedChanges.touchedPins.length;
-      return `${prefix} · ${totalPins} pins · ${c.yellow}REVIEW · ${n} touched${c.reset}`;
+      // Plain-English form. "REVIEW · N touched" was jargon — the user
+      // didn't intuit it means "your edits touch N guarded files."
+      // "in this commit" matches AI-coder mental model better. Updated
+      // 2026-05-23 per UX feedback.
+      const label = n === 1 ? "1 protected file in this commit" : `${n} protected files in this commit`;
+      return `${prefix} · ${totalPins} pins · ${c.yellow}⚠ ${label}${c.reset}`;
     }
   }
   // 2.75. Skipped pins — when the last `pinned test` run had pins
@@ -436,13 +815,18 @@ export function formatStatusline(opts: {
     // explanation + a link to pinnedai.dev/docs/preview-url.
     return `${prefix} · ${totalPins} pins · ${c.cyan}⊘ ${lastStatus.skippedCount} skipped (no preview)${c.reset}`;
   }
-  // 3. Unpinned risks
+  // 3. Unpinned risks — patterns Pinned recognized as guardable but
+  // hasn't pinned yet. Plain-English: "risk" → "could be guarded".
   if (typeof lastStatus.unpinnedRisks === "number" && lastStatus.unpinnedRisks > 0) {
-    return `${prefix} · ${totalPins} pins · ${c.yellow}⚠ ${lastStatus.unpinnedRisks} risks${c.reset}`;
+    const n = lastStatus.unpinnedRisks;
+    return `${prefix} · ${totalPins} pins · ${c.yellow}⚠ ${n} thing${n === 1 ? "" : "s"} could be guarded${c.reset}`;
   }
-  // 4. Safety notes
+  // 4. Safety notes — load-bearing config / public-exposure
+  // findings (env in repo, large bundle, etc.). Plain-English:
+  // "note" → "safety warning".
   if (typeof lastStatus.safetyNotes === "number" && lastStatus.safetyNotes > 0) {
-    return `${prefix} · ${totalPins} pins · ${c.yellow}⚠ ${lastStatus.safetyNotes} notes${c.reset}`;
+    const n = lastStatus.safetyNotes;
+    return `${prefix} · ${totalPins} pins · ${c.yellow}⚠ ${n} safety warning${n === 1 ? "" : "s"}${c.reset}`;
   }
   // 5. Recently added — transient celebration of auto-protect work.
   // Emit a multi-line banner during the celebration window so users
@@ -536,11 +920,34 @@ export function formatStatusline(opts: {
   //
   // statuslineMode: "minimal" still suppresses the ✓ entirely.
   if (minimal) return "";
+  // Compute optional "last catch Nd ago" subtle tail — appended ONLY
+  // when a catch landed in the 24-72h window. Permanent value signal
+  // (coverage) leads; catch becomes context, not headline.
+  let subtleCatchTail = "";
+  if (lastStatus.lastCatchAt) {
+    const age = now - new Date(lastStatus.lastCatchAt).getTime();
+    if (
+      Number.isFinite(age) &&
+      age >= CATCH_PROMINENT_WINDOW_MS &&
+      age < CATCH_SUBTLE_WINDOW_MS
+    ) {
+      const days = Math.max(1, Math.floor(age / (24 * 60 * 60 * 1000)));
+      subtleCatchTail = ` · ${c.dim}last catch ${days}d ago${c.reset}`;
+    }
+  }
   const streak = lastStatus.verifiedStreak ?? 0;
   if (streak > 0) {
-    return `${prefix} · ${totalPins} pins · ${c.green}✓ ${streak} verified${c.reset}`;
+    const lessonsTail =
+      typeof lastStatus.lessonsLifetime === "number" && lastStatus.lessonsLifetime > 0
+        ? ` · ${lastStatus.lessonsLifetime} lessons`
+        : "";
+    return `${prefix} · ${totalPins} pins${lessonsTail} · ${c.green}✓ ${streak} verified${c.reset}${subtleCatchTail}`;
   }
-  return `${prefix} · ${totalPins} pins · ${c.green}✓${c.reset}`;
+  const lessonsTail =
+    typeof lastStatus.lessonsLifetime === "number" && lastStatus.lessonsLifetime > 0
+      ? ` · ${lastStatus.lessonsLifetime} lessons`
+      : "";
+  return `${prefix} · ${totalPins} pins${lessonsTail} · ${c.green}✓${c.reset}${subtleCatchTail}`;
 }
 
 // Chat-injection content. Three outcomes, in priority order:
@@ -600,8 +1007,67 @@ export function formatChatHook(
       };
     }
   }
-  // 3. Nothing to say.
+  // 3. Recent catches mention — informational injection so the AI
+  // can answer "what did Pinned catch?" without reading raw JSON.
+  // Fires when there are catches within the prominent window (24h)
+  // that the AI hasn't been notified about. Brief by design: just
+  // names the most severe catch + count + how to dig deeper. Never
+  // blocks; never repeats (gated by lastAddNotifiedAt, repurposed
+  // since add and catch notifications can share the throttle stamp).
+  if (lastStatus?.lastCatchAt) {
+    const catchAge = now - new Date(lastStatus.lastCatchAt).getTime();
+    if (Number.isFinite(catchAge) && catchAge >= 0 && catchAge < CATCH_PROMINENT_WINDOW_MS) {
+      const cutoff = now - CATCH_PROMINENT_WINDOW_MS;
+      const recent = (lastStatus.catchHistory ?? []).filter((r) => {
+        const t = new Date(r.caughtAt).getTime();
+        return Number.isFinite(t) && t >= cutoff;
+      });
+      if (recent.length > 0) {
+        // Sort by severity (highest first) so the headline picks the
+        // most-serious catch as the lede.
+        const rankOf: Record<string, number> = {
+          critical: 4, high: 3, medium: 2, low: 1, info: 0,
+        };
+        const ranked = [...recent].sort(
+          (a, b) => (rankOf[b.severity ?? "info"] ?? 0) - (rankOf[a.severity ?? "info"] ?? 0)
+        );
+        return {
+          text: recentCatchesMessage(ranked),
+          stampAddNotifiedAt: null,
+        };
+      }
+    }
+  }
+  // 4. Nothing to say.
   return { text: "", stampAddNotifiedAt: null };
+}
+
+// Brief chat-hook injection that tells the AI about catches in the
+// last 24h. Goal: enough context so "what did Pinned catch?" can be
+// answered conversationally; brief enough that the AI's main task
+// isn't disrupted. Bullets cap at 3 by severity rank.
+function recentCatchesMessage(ranked: CatchRecord[]): string {
+  const n = ranked.length;
+  const lines: string[] = [
+    `ℹ Pinned context: ${n} regression${n === 1 ? "" : "s"} caught in the last 24h${ranked[0]?.severity === "critical" ? " (includes 1 CRITICAL)" : ""}:`,
+  ];
+  const MAX = 3;
+  for (const c of ranked.slice(0, MAX)) {
+    const sev = c.severity ? `[${c.severity.toUpperCase()}] ` : "";
+    const headline = c.laymanHeadline ?? c.claimText ?? c.claimId;
+    lines.push(`   • ${sev}${headline}`);
+    if (c.userImpact) {
+      lines.push(`     What this prevents: ${c.userImpact}`);
+    }
+  }
+  if (n > MAX) {
+    lines.push(`   • …and ${n - MAX} more`);
+  }
+  lines.push("");
+  lines.push(
+    "If the user asks about these, run `pinned catches` for the full list."
+  );
+  return lines.join("\n");
 }
 
 // Back-compat — the existing CLI command uses formatFailureHook and the
@@ -691,7 +1157,7 @@ function failureMessage(lastStatus: LastStatus): string {
     lines.push(`  See tests/pinned/CATCHES.md for the running ledger (Pinned has caught ${totalCaught} regression${totalCaught === 1 ? "" : "s"} in this repo).`);
     lines.push(``);
   }
-  lines.push(`  Run \`pnpm pinned:test\` to re-verify after fixing.`);
+  lines.push(`  Run \`npx pinnedai test\` to re-verify after fixing.`);
   return lines.join("\n");
 }
 

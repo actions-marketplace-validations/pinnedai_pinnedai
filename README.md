@@ -1,397 +1,250 @@
-# pinnedai
+# PinnedAI
 
-> **Permanent guardrails for AI-coded apps.**
+> **Pinned creates a local AI-coder safety net on install, writes repo-specific lessons, and blocks AI from weakening protected guards.**
+>
+> *Free beta · Founder Pro waitlist open at [pinnedai.dev](https://pinnedai.dev).*
 
-> Pinned remembers the promises your app must keep — auth, billing, rate limits, webhooks, permissions, and critical flows — and blocks future AI edits from quietly breaking them.
+## The 5-step value loop
 
-The missing layer in the AI-coding stack:
+1. **`pinned init`** scans your repo and creates baseline guards on install (auth checks, lockfile integrity, secret prefixes, route registrations, webhook signatures, URL literals, exports, form error-handling, more).
+2. **Guard Integrity blocks** any commit that tries to delete, skip, weaken, or `--no-verify`-bypass a guard.
+3. **AI Lessons file** (`.pinned/ai-lessons.md`) captures repo-specific rules — read by Claude / Cursor / Devin / Copilot before they edit.
+4. **`pinned audit --learned`** scans sibling code paths for the same mistake pattern.
+5. **Future AI edits must pass every guard.** The output of every finding is an executable test, not a review comment.
 
-1. Cursor / Claude Code writes the code
-2. CodeRabbit / Copilot reviews it
-3. **Pinned turns important promises into permanent guardrails** ← we live here
-4. CI enforces them forever
-
-Every promise your PR description makes — "auth required on /api/admin", "rate-limits /api/users to 60/min", "Stripe webhook idempotent by event_id" — becomes a permanent CI test in your repo. When a future AI change touches that protected behavior, CI fails with a back-reference to the original PR and a paste-ready repair prompt for Cursor or Claude Code.
+**Proof it works**: see the [`/proof` page](https://pinnedai.dev/proof) for benchmark results, or jump to [Status](#status) below for the headline numbers.
 
 ---
 
-## Get immediate value in 60 seconds (not after some future regression)
-
-### 1. See the demo
+## Quickstart
 
 ```bash
+# See what Pinned does on a sample claim — no install, no signup
 npx pinnedai
-```
 
-Parses a sample PR description, generates a Vitest file, shows the regression simulator. No install, no signup, no config.
-
-### 2. Install in your repo (one command)
-
-```bash
+# Install in your repo (one command)
 npx pinnedai init
+
+# After init, on every commit Pinned blocks AI bypass attempts and
+# auto-protects new admin/middleware/webhook/client-fetch code.
 ```
 
-Writes `.github/workflows/pinned.yml`, creates `tests/pinned/` with an auto-maintained `PINS.md` registry.
+`pinned init` writes `.github/workflows/pinned.yml`, creates `tests/pinned/` with `PINS.md`, installs pre-commit + pre-push hooks, auto-generates baseline pins from your current code, and seeds AI-coder rules into `CLAUDE.md` + `.github/copilot-instructions.md` (and any other AI rule file already in the repo). Each step prompts before writing in interactive mode; pass `--auto` to accept all.
 
-### 3. Find unprotected promises **today** with `baseline`
-
-```bash
-npx pinnedai baseline
-```
-
-Walks your repo, applies the risk-surface detector, finds claims you should pin **right now** — typically 8-12 candidates on a typical Next.js / Hono / Express app.
-
-**This is the immediate value.** Pinned isn't insurance against future regressions — it's protection for the promises your code is already making but isn't testing. Six months later, when AI tools refactor through that code, those pins are still there.
-
-### 4. Open a PR. The Action does the rest.
-
-Commit your code, open a PR with a claim in the description. The Action:
-- Scans the diff for new risk surfaces
-- Posts a PR comment with suggested pins for anything unprotected
-- Auto-generates and commits tests for every claim in the description
-- Replies `✓ Pinned` when the tests join your suite
+If your repo already has `.cursorrules`, `.clinerules`, `AGENTS.md`, or `.windsurfrules`, init writes to those too — same marker-bounded block, identical uninstall flow (`pinned uninstall-agent-rules`).
 
 ---
 
-## What you can claim (8 templates across 3 domains)
+## Editor + AI-tool surfaces
 
-### Web app claims (3)
+Pinned ships across every major AI-coder surface:
 
-Generated tests hit `PREVIEW_URL` and assert HTTP-level behavior.
-
-| Claim phrasing | Test that gets generated |
-|---|---|
-| `Rate-limits /api/users to 60 req/min.` | Bursts 61 parallel requests, asserts ≥1 returns 429 |
-| `Auth required on /api/admin/export.` | Single GET without auth, asserts 401 or 403 |
-| `Makes /webhooks/stripe idempotent on event_id.` | POSTs the same payload twice, asserts byte-identical response |
-
-**Example**:
-
-```bash
-npx pinnedai check --description "Rate-limits /api/users to 60 req/min. Auth required on /api/admin/export."
-# → Found 2 claim(s):
-#   • rate-limit     /api/users  →  60/minute
-#   • auth-required  /api/admin/export  →  401/403 without auth
-```
-
-### CLI tool claims (4)
-
-Generated tests spawn the binary via `execFileSync` / `spawnSync` (no shell) and assert on stdout, exit code, file side-effects, or `--help` output.
-
-| Claim phrasing | Test that gets generated |
-|---|---|
-| `` `pinned doctor` outputs `tests/pinned/ directory`. `` | Spawn, capture stdout, assert substring present |
-| `` `pinned init` exits 0 on a healthy repo. `` | Spawn, assert exit code is 0 |
-| `` `pinned init` creates `tests/pinned/.registry.json`. `` | Spawn in tempdir, assert file exists relative to cwd |
-| `` `pinned check` supports `--json` flag. `` | Spawn `<cmd> --help`, assert flag appears in output |
-
-**Example**:
-
-```bash
-npx pinnedai check --description "\`pinned doctor\` outputs \`All checks passed\`. \`pinned --version\` exits 0."
-# → Found 2 claim(s):
-#   • cli-output     `pinned doctor`  →  stdout contains "All checks passed"
-#   • cli-exits      `pinned --version`  →  exits 0
-```
-
-### Library / SDK claims (1)
-
-Generated tests import the named function from a repo-relative module and deep-equal the return.
-
-| Claim phrasing | Test that gets generated |
-|---|---|
-| `` `parseConfig()` in `src/config.ts` returns `{"version": 1}`. `` | Import, call, assert JSON-deep-equal on return |
-
-**Example**:
-
-```bash
-npx pinnedai check --description "\`add(2, 3)\` in \`src/math.ts\` returns \`5\`."
-# → Found 1 claim(s):
-#   • library        add(2, 3) in src/math.ts  →  returns 5
-```
-
-> **Need a template that isn't here?** Open an issue at [github.com/pinnedai/pinnedai/issues](https://github.com/pinnedai/pinnedai/issues) with the claim phrasing you'd like to support — each template is ~200 lines and we add them on customer demand.
-
----
-
-## Sticky features
-
-### `PINS.md` — the visible behavioral contract
-
-Every `pinned generate` updates `tests/pinned/PINS.md`, a human-readable table of every pinned claim. Browse it on GitHub like a README; every dev on the team sees what contracts the repo holds itself to. The more pins, the more it compounds.
-
-```bash
-npx pinnedai list                # what's pinned (active)
-npx pinnedai list --include-retired   # plus retired (audit trail)
-```
-
-### `pinned scan` — "no proof found" PR comments
-
-The Action runs `scan` (alias: `scan-diff`) on every PR. It detects risk surfaces (new Next.js routes, webhook handlers, middleware changes, `.env` edits), cross-references the PR description + existing pins for coverage, and comments suggested pins for unprotected changes.
-
-```bash
-npx pinnedai scan --base origin/main --markdown
-# Markdown for PR comments
-```
-
-### Safety Pass — deterministic AI-mistake scan
-
-`pinned safety` runs a static scan for the kind of mistakes AI-generated code introduces. **Pure deterministic — zero LLM cost by default.** Checks:
-
-- Env var used in code but missing from `.env.example`
-- `NEXT_PUBLIC_*SECRET / TOKEN / KEY` (public-by-name + secret-by-shape = leak)
-- Public CORS wildcard (`*` origin)
-- Destructive SQL (`DROP TABLE`, `TRUNCATE`, `DELETE` without `WHERE`)
-- Type / lint escape hatches (`@ts-ignore`, `eslint-disable`)
-
-```bash
-npx pinnedai safety
-# Safety Pass: 2 warnings · 1 info
-#   ⚠ Env var `STRIPE_SECRET_KEY` is used in code but not listed in .env.example.
-#      src/billing.ts:14
-#      → Add STRIPE_SECRET_KEY= to .env.example
-```
-
-Optional `--summarize` flag sends only the compact findings JSON (not the diff or source) to the hosted LLM for a 3-bullet markdown summary. Counts against monthly LLM quota.
-
-### `pinned status` — the full picture
-
-```bash
-npx pinnedai status
-```
-
-Shows pins (active/passing/failing) + unpinned risks + Safety Pass findings + suggested next action. Reads from `.last-status.json` cache so it's fast.
-
-### `pinned protect` — turn risks into pins (interactive)
-
-After `pinned risks` (alias for `baseline`) surfaces unpinned routes/webhooks:
-
-```bash
-$ npx pinnedai protect
-
-Pinned can protect 2 unpinned risks:
-
-  [1] Risk-surface: route /api/admin/billing found in app/api/admin/billing/route.ts
-      → Auth required on /api/admin/billing.
-
-  [2] Risk-surface: webhook /webhooks/stripe found in app/api/webhooks/stripe/route.ts
-      → Makes /webhooks/stripe idempotent on event_id.
-
-Protect these risks?
-  [Y] all (1-2)    [1,3,5] choose by index    [N] cancel
-  >
-```
-
-For CI: `pinned protect --all` or `--dry-run`.
-
-### `pinned fix-prompt` — repair prompt for Claude / Cursor
-
-When a pin fails (or a risk / safety finding needs action), generate a paste-ready prompt for your AI editor:
-
-```bash
-npx pinnedai fix-prompt              # for failing pins
-npx pinnedai fix-prompt --risk 1     # for the Nth unpinned risk
-npx pinnedai fix-prompt --safety 2   # for the Nth Safety Pass finding
-```
-
-Your AI editor pays for the repair tokens — pinned just gives the prompt.
-
-### Claude Code integration (statusline + failure hook)
-
-Pinned can show up persistently in [Claude Code](https://claude.com/claude-code) without polluting your chat. Two surfaces:
-
-**Statusline** (always-visible bottom bar):
-
-```
-◆ pinned · 8 pins · ✓                  (quiet when green)
-◆ pinned · 8 pins · ✗ 1 failing        (when a pinned test fails)
-◆ pinned · 8 pins · ⚠ 2 risks          (when there are unpinned risks)
-```
-
-**Chat injection ONLY when something is broken** — empty stdout when green so chat stays clean.
-
-Add to your repo's `.claude/settings.json` (one-time, team-shared):
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "npx pinnedai statusline"
-  },
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "matcher": "",
-        "hooks": [
-          { "type": "command", "command": "npx pinnedai hook-failure" }
-        ]
-      }
-    ]
-  }
-}
-```
-
-`pinned init` will offer to set this up for you when it detects Claude Code is in use.
-
-### `@pinned add:` — pin from a PR comment
-
-Reviewer notices a claim missing? Comment on the PR:
-
-```
-@pinned add: Auth required on /api/admin/billing.
-```
-
-The Action parses the comment, generates the test, commits to the PR branch, replies with ✓. Gated to OWNER/MEMBER/COLLABORATOR so external contributors can't trigger commits on public repos.
-
-### `pinned baseline` — first-day "wow"
-
-Run once after `npx pinnedai init` on an existing repo. Walks the whole working tree, suggests pins from the routes/handlers/middleware that already exist — typically 10+ candidates for a typical Next.js / Hono / Express repo.
-
-```bash
-npx pinnedai baseline
-# Found 12 candidate pin(s) in your repo. Add the suggested lines to your next PR description...
-```
-
-### Repair-prompt on failure
-
-When a pin fails CI, the error message includes a **paste-ready prompt** for Cursor or Claude Code. Workflow:
-
-1. Refactor breaks a pinned claim
-2. CI fails with the original PR reference + repair prompt
-3. Copy the prompt → paste into your AI editor
-4. AI proposes a fix matching the original claim
-5. Commit, CI passes
-
-### `pinned retire` — graceful audit trail
-
-When a contract genuinely no longer applies:
-
-```bash
-npx pinnedai retire <claim-id> --reason="endpoint deprecated 2026-Q2"
-```
-
-Moves the test to `tests/pinned/retired/` and writes a per-file `<id>.audit.json` with timestamp + author + reason. The retire move is preserved in git history — SOC 2 / ISO 27001 change-management evidence.
-
-### `pinned doctor` — diagnose setup issues
-
-```bash
-npx pinnedai doctor
-# Health check for pinnedai setup in this repo.
-# ✓ tests/pinned/ directory                  present
-# ✓ .github/workflows/pinned.yml             present
-# ✓ Workflow OIDC permission                 id-token: write declared
-# ✓ Workflow auto-commit permission          contents: write declared
-# ✓ PINS.md registry                         8 active pin(s), 0 retired
-```
-
----
-
-## CLI reference
-
-| Command | What it does |
-|---|---|
-| `npx pinnedai` | Default — runs the local demo. Zero config. |
-| `pinned init` | Scaffold the GitHub Action workflow + `tests/pinned/` registry. Offers to wire `.claude/settings.json` for statusline/hook. |
-| `pinned check --description "..."` | Parse a PR description for claims (regex + LLM in CI). `--json` for structured output. |
-| `pinned generate --pr-id pr-N --description "..."` | Write test files to `tests/pinned/`. Auto-runs in the workflow. `--dry-run` to preview. |
-| `pinned scan --base origin/main` | Find unpinned risk surfaces in the current diff. `--markdown` for PR-comment output. Alias: `scan-diff`. |
-| `pinned baseline` (alias: `risks`) | Scan the whole repo, suggest pins from current state |
-| `pinned protect [--all] [--dry-run]` | Interactive: turn detected risks into pins |
-| `pinned safety [--summarize] [--json]` | Deterministic Safety Pass — env vars, secret-shape, CORS, SQL, lint escape hatches |
-| `pinned status [--refresh]` | Full breakdown: pins + risks + safety + suggested next |
-| `pinned fix-prompt [--risk N \| --safety N]` | Paste-ready repair prompt for Claude/Cursor |
-| `pinned test` | Run pinned tests + update `.last-status.json` cache |
-| `pinned list [--include-retired] [--verbose]` | Browse all pinned + retired claims in this repo |
-| `pinned show <claim-id>` | Full detail for one pin: claim text, file, status, catch history |
-| `pinned catches [--limit N]` | Lifetime history of regressions Pinned has caught |
-| `pinned auto-protect [--base WORKING_TREE] [--mode safe\|ask\|off]` | Run the auto-protect classifier against the current diff. Auto-adds safe pins in `safe` mode |
-| `pinned watch [--debounce 3000]` | Background fs watcher; runs auto-protect after the configured quiet window |
-| `pinned retire <claim-id> --reason="..."` | Move a pin to `retired/` with an audit-log entry |
-| `pinned doctor` | Health check — diagnose setup issues (missing perms, broken workflow, etc.) |
-| `pinned ai-rules install [--yes]` | Opt-in: add the pinnedai block to CLAUDE.md / .cursorrules |
-| `pinned statusline` | One-line indicator for Claude Code bottom bar (read from cache) |
-| `pinned hook-failure` | Chat injection content — empty when green, warning when a pin is failing |
-| `pinned pr-comment` | Short PR-comment markdown (quiet-success / claims-added / risky / broken) |
-
-All commands work locally — they only call the hosted LLM when running inside GitHub Actions. Authentication is keyless: GitHub Actions issues a short-lived OpenID Connect (OIDC) token that proves which repo is calling us. You never sign up, never set an API key.
-
----
-
-## Pricing
-
-| Tier | Price | LLM calls/mo | Pins | Other |
-|---|---|---|---|---|
-| **Free** | $0 | **1,000** public · **100** private | **Unlimited** | All 8 templates · auto-commit · no API key |
-| **Pro** | $19/mo | 5,000 (fair use) | Unlimited | Optional BYOK (Anthropic/OpenAI) · custom templates · `@pinned fix` |
-| **Team** | $199/mo | 50,000 | Unlimited | Org policies · audit log · Slack alerts · CODEOWNERS routing |
-| **Enterprise** | $20K+/yr | 1,000,000 | Unlimited | Self-hosted Worker · SSO · SOC 2 CC8.1 evidence export |
-
-Pin count is **unlimited at every tier** — the value compounds with every PR, and capping pins would cap the moat. Tiers differentiate on LLM-call volume (cost-bounded by what we pay OpenAI on your behalf) and features.
-
-Free tier needs only `npx pinnedai init`. Public-repo LLM caps match CodeRabbit's launch generosity for OSS. Private-repo caps match the Greptile/Qodo/Snyk zone but with no per-PR restrictions. Pro/Team/Enterprise: customer pays via Stripe with their GitHub org name; the next PR auto-detects the subscription via OIDC. No license key, no API key wiring, no config.
-
----
-
-## BYOK — Bring Your Own Key (Pro+, optional)
-
-By default the hosted Worker calls OpenAI on your behalf for LLM-assisted claim extraction. If compliance requires that PR descriptions never transit our infrastructure, **BYOK** ("Bring Your Own Key") lets the CLI call Anthropic or OpenAI **directly** using a key you provide. Opt in with:
-
-```yaml
-# .github/workflows/pinned.yml
-- uses: pinnedai/pinnedai-action@v1
-  with:
-    byok: anthropic   # or "openai"
-  env:
-    PINNEDAI_ANTHROPIC_KEY: ${{ secrets.PINNEDAI_ANTHROPIC_KEY }}
-```
-
-The CLI calls Anthropic/OpenAI directly with your key. Our Worker only sees the OIDC plan-check, never the PR body. Naked `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars are intentionally NOT auto-discovered — the prefixed env var name is a deliberate opt-in.
-
----
-
-## Comparison
-
-| | CodeRabbit / Greptile / Qodo | Pinned |
+| Surface | What you get | How to install |
 |---|---|---|
-| Reviews PRs | ✅ | — |
-| Leaves comments | ✅ | — |
-| Finds possible bugs | ✅ | — |
-| **Converts claims into tests** | ❌ | ✅ |
-| **Leaves repo artifacts** | ❌ | ✅ |
-| **Prevents repeated broken promises** | ❌ | ✅ |
-| **Pins live forever in your codebase** | ❌ | ✅ |
-| **Works on web + CLI + library code** | ❌ (web) | ✅ |
+| **VS Code / Cursor / Windsurf / Codium** | `◆ pinned · N guards · ✓` in the status bar, rich hover tooltip with recent guards + latest AI lesson, click → Quick Pick with `pinned status / list / review` actions. Works in stock VS Code (Copilot users), Cursor, Windsurf, Codium. | Bundled `.vsix` auto-installs during `pinned init` |
+| **Claude Code** | Statusline + UserPromptSubmit hook (`◆ pinned · LEARNED · 1 new AI mistake`, transient block-event messages). Optional `/pinned-status`, `/pinned-list`, `/pinned-review`, `/pinned-done` slash commands. | Statusline auto-wired by `init`; slash commands via `npx pinnedai install-claude` |
+| **GitHub Copilot Chat (free + paid)** | Reads Pinned rules from `.github/copilot-instructions.md` before generating code | Auto-created during `init` |
+| **MCP-aware tools (Claude Desktop, Cline, Continue)** | `pinned_before_code_change`, `pinned_before_done_check`, `pinned_scan_diff`, `pinned_list_guards`, `pinned_check_pr_description`, `pinned_suggest_init` as native tools with structured `human_summary` + must-report `agent_instruction` fields | Add `pinnedai-mcp` to the tool's MCP config — see [docs/integrations/](./docs/integrations/) |
+| **GitHub Action (CI)** | `pinned check-guard-removal` + vitest on every PR — guard weakening attempts fail CI | Auto-wired via `.github/workflows/pinned.yml` from `init` |
+| **Pre-commit + pre-push hooks** | Block bypass attempts locally before they reach CI | Auto-wired by `init` |
 
-Pinned isn't a code-review bot. It's a *test artifact registry* that turns PR claims into permanent regression tests. Use it alongside CodeRabbit, Cursor, or Claude Code — they review, Pinned protects.
+Per-tool integration docs:
 
----
+- [docs/integrations/cursor-rules.md](./docs/integrations/cursor-rules.md)
+- [docs/integrations/windsurf-rules.md](./docs/integrations/windsurf-rules.md)
+- [docs/integrations/claude-code.md](./docs/integrations/claude-code.md)
 
-## Show your pin count in your README (free virality)
-
-Once you've pinned a few claims, embed the pinnedai badge in your README so visitors see the contract count:
+## README badge
 
 ```markdown
-[![pinned by pinnedai](https://api.pinnedai.dev/badge/your-org/your-repo)](https://pinnedai.dev)
+[![Pinned protected](https://pinnedai.dev/badge.svg)](https://pinnedai.dev)
 ```
 
-The SVG reads `tests/pinned/PINS.md` from your repo on-demand and renders the active pin count. Free for any public repo — no auth, no signup.
+---
+
+## What Pinned protects
+
+Pinned focuses on AI-prone failure modes:
+
+- **Guard weakening** — `.skip()`, `.only()`, `xit()`, `.todo()`, `.skipIf(true)`, deleted tests, weakened assertions (`toBe(401)` → `toBeTruthy()`), `|| true`, `?? true`, `catch(() => true)`, `expect(true).toBe(true)` tautologies, commented-out `expect()`, `expect.assertions(0)`, early `return;` in test body.
+- **Pinned-infrastructure tampering** — deletion of `tests/pinned/*`, `.github/workflows/pinned.yml`, `tests/pinned/.registry.json`, `.pinned/ai-lessons.md`, or sneaky rename-to-retired/ without the matching `.audit.json`.
+- **Client / API mistakes** — missing `authHeaders()`, missing `credentials: "include"`, lost `if (!res.ok)` gates, removed 401/402/403 handling. Detected statically per file via path + pattern heuristics.
+- **Auth / middleware regressions** — `requireAuth` / `requireAdmin` / middleware matcher coverage; the middleware-aware pin uses `middleware.ts`'s captured auth signature so removing the auth check fails the guard.
+- **Route / export / reference integrity** — internal `<Link href="/foo">` / `navigate("/foo")` / `router.push("/foo")` that resolve today are pinned; if a future commit removes the target page file, the pin fails.
+- **Webhook signature verification** — `stripe.webhooks.constructEvent`, `x-hub-signature-256`, `svix.verify`, `twilio.validateRequest`, generic `crypto.createHmac("sha256", ...)`. Pinned captures the verify call so removing it fails the guard.
+- **Public exposure no-fixture checks** — `.env` committed without `.gitignore` coverage, `.map` files in `dist/`/`build/`, debug routes (`__debug`, `__test`, `debug.html`, `/admin/console`).
 
 ---
 
-## Dogfood
+## AI lessons
 
-pinnedai pins claims about itself in `tests/pinned/`. The CI workflow at `.github/workflows/ci.yml` runs them on every push. See those test files for living examples of every template.
+Pinned writes repo-specific lessons to `.pinned/ai-lessons.md` (markdown for humans) and `.pinned/lessons.json` (structured for tools).
+
+Each lesson is generated from a real event — a blocked bypass attempt, a replay-verified bug-fix guard, or a confirmed sibling audit. Dedupe is per `guardId`: repeat attempts append evidence to the existing entry, not duplicate sections.
+
+Example:
+
+```md
+## Don't weaken client-getReport-authHeaders
+
+<!-- pinned:guard=client-getReport-authHeaders kind=guard-block -->
+
+**Past mistake:**
+weakened: src/api/getReport.ts — `headers: await authHeaders()` removed in PR #88
+
+**Rule:**
+Do not remove `authHeaders()` from `src/api/getReport.ts`. Fix the application code instead.
+
+**Guard:** `client-getReport-authHeaders`
+
+**Plain English:** don't drop authHeaders() from API calls
+```
+
+Point your AI coder at this file with `pinned install-agent-rules` so Claude/Cursor reads the rules before editing.
 
 ---
 
-## License: Apache 2.0
+## Commands
 
-The CLI is fully open source — auditable for any security team. The hosted LLM extraction service is a separate, closed-source Worker; substitute your own endpoint via `PINNEDAI_ENDPOINT` if you want to self-host.
+### Setup
+
+```bash
+npx pinnedai init                    # one-time per repo
+npx pinnedai install-agent-rules     # opt-in: wire CLAUDE.md/.cursorrules/etc. to read .pinned/ai-lessons.md
+npx pinnedai uninstall-agent-rules   # undo the above
+npx pinnedai agent-rules             # show which agent files are wired
+```
+
+### Daily workflow
+
+```bash
+npx pinned test                      # run the pin suite
+npx pinned status                    # see active pins + recent events
+npx pinned context                   # print the AI-coder context (rules + lessons) for inline prompting
+```
+
+### Discovery
+
+```bash
+npx pinned scan-diff                 # show what Pinned would auto-protect in the current diff
+npx pinned audit --learned           # scan sibling code paths for risks matching learned patterns
+npx pinned probe-admin               # enumerate admin/internal routes + their protection state
+npx pinned list                      # list all active + retired pins
+```
+
+### Lifecycle
+
+```bash
+npx pinned retire <claim-id> --reason="..."   # legitimate retirement (writes audit entry)
+```
+
+### Internal (called by hooks)
+
+```bash
+npx pinned check-guard-removal       # pre-commit hook entry; blocks AI bypass attempts
+npx pinned statusline                # statusline rendering for Claude Code
+npx pinned backtest --mode=bug-fix   # replay a repo's git history (calibration tool)
+```
+
+### Optional AI-assisted analysis (BYOK)
+
+```bash
+PINNEDAI_BYOK=openai PINNEDAI_OPENAI_KEY=sk-... npx pinned check
+```
+
+LLM-as-proposer fires on each commit's diff to suggest additional guards the deterministic detectors might miss. Customer pays their LLM vendor directly; Pinned doesn't proxy.
 
 ---
 
-## Links
+## Statusline
 
-- **Live demo**: [pinnedai.dev](https://pinnedai.dev)
-- **npm**: [pinnedai](https://www.npmjs.com/package/pinnedai)
-- **Issues**: [github.com/pinnedai/pinnedai/issues](https://github.com/pinnedai/pinnedai/issues)
+Pinned surfaces protection events without becoming a noisy reviewer. Events decay back to a calm baseline:
+
+```
+◆ pinned · 34 pins · 7 lessons · ✓ 12 verified                  # baseline
+◆ pinned · 34 pins · ⚠ 2 protected files in this commit          # editing guarded files
+◆ pinned · 34 pins · ⛔ blocked: AI weakened pin sample.test.ts   # Guard Integrity refused
+◆ pinned · 34 pins · +1 new guard                                # SAVED
+◆ pinned · 34 pins · scanned 3 similar files                     # AUDIT
+◆ pinned · 34 pins · 4 guards passed                             # COVERED
+◆ pinned · 34 pins · learned: don't drop authHeaders() from API calls  # LEARNED
+◆ pinned · 34 pins · ✗ 1 broken                                  # failing pin
+```
+
+The `BLOCK / LEARNED / SAVED / AUDIT / COVERED` transients fall back to baseline after 1-2 minutes. Persistent value = guard count + lesson count.
+
+---
+
+## What Pinned is NOT
+
+Pinned is **not** a generic code reviewer, SAST scanner, or AI bug-fixer.
+
+CodeRabbit reviews PRs. Snyk / Semgrep scan for broad security issues. They run once and leave comments.
+
+Pinned protects the repo-specific promises your AI coder must not forget: the bug fixes, guards, tests, and lessons that should survive future AI edits. **The output of every finding is an executable guard, not a comment.**
+
+---
+
+## AI and privacy
+
+Pinned works **without an LLM**. The core engine is deterministic: guards either pass, fail, or were weakened.
+
+Optional AI-assisted mode (BYOK) can propose additional guards, sibling audits, and lessons from diff context. AI output never enforces anything by itself — deterministic guards + CI do the enforcement.
+
+Principle:
+
+```
+LLM proposes. Guards prove. CI enforces.
+```
+
+**Local-first.** Free beta runs entirely on your machine + your CI. Pinned doesn't see your code unless you set BYOK env vars (in which case the calls go directly to your LLM vendor, not through Pinned infrastructure).
+
+---
+
+## Free vs Founder Pro
+
+| | Free Beta | Founder Pro (waitlist) |
+|---|---|---|
+| All deterministic detectors | ✅ Unlimited | ✅ |
+| Guard Integrity blocks | ✅ | ✅ |
+| AI Lessons file + agent config wiring | ✅ | ✅ |
+| Replay-verified bug-fix guards | ✅ | ✅ |
+| Local audit / probe / context | ✅ | ✅ |
+| Pre-commit / pre-push hooks | ✅ | ✅ |
+| Statusline integration | ✅ | ✅ |
+| Report-only CI (you wire `pinned guard` yourself) | ✅ | ✅ |
+| Optional BYOK AI proposer (your own key) | ✅ | ✅ |
+| **PR comments with repair prompts** | — | Coming |
+| **Cross-repo AI lessons** | — | Coming |
+| **Hosted AI analysis (no API key)** | — | Coming |
+| **Cloud proof / history dashboard** | — | Coming |
+| **AI / provider mistake analytics** | — | Coming |
+| **Managed CI enforcement policies** | — | Coming |
+| **Custom guard templates** | — | Coming |
+| **Team policies + audit log** | — | Coming |
+
+Founder Pro is a **waitlist** today — no payment, no card. We collect interest to gauge demand for the paid features above. When paid opens, founder pricing locks for everyone on the list.
+
+[Join the waitlist →](https://pinnedai.dev#waitlist)
+
+---
+
+## Status
+
+v0.1 (free beta) ships with:
+
+- 8 Guard Integrity detectors (23 / 23 known AI bypass tactics blocked in our mutation-test suite)
+- AI Lessons file + opt-in agent-config wiring (CLAUDE.md, .cursorrules, .github/copilot-instructions.md, etc.)
+- 6 P0 detector categories generating pins at init: Guard Integrity, client fetch / auth-headers / error-handling, auth/middleware, route/export/reference integrity, public exposure, webhook signature
+- `pinned audit --learned` for sibling discovery
+- `pinned probe-admin` for admin-route enumeration
+- `pinned context` for runtime AI-coder briefing
+- Statusline events for BLOCK / SAVED / AUDIT / COVERED / LEARNED / VERIFIED + baseline `N pins · M lessons`
+
+Open beta. Bug reports + feature requests welcome at [github.com/pinnedai/pinnedai/issues](https://github.com/pinnedai/pinnedai/issues).
+
+---
+
+## License
+
+Apache 2.0. CLI source is public; the Cloudflare Worker that backs the (coming) hosted AI / cross-repo lessons / dashboard features stays private.

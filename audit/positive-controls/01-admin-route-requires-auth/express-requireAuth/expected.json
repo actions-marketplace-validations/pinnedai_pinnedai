@@ -1,0 +1,10 @@
+{
+  "category": "admin-route-requires-auth",
+  "variation": "express-requireAuth",
+  "fixSubject": "fix: require auth on admin export route",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["auth-required"],
+    "containingFile": "src/routes/admin.ts"
+  }
+}

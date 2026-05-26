@@ -564,6 +564,88 @@ a:hover {
   box-shadow: 0 4px 12px rgba(255, 180, 84, 0.3);
 }
 
+/* ---------- waitlist form ---------- */
+
+.waitlist-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.waitlist-form input,
+.waitlist-form select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--fg);
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.waitlist-form input:focus,
+.waitlist-form select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.waitlist-form button {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: transform 120ms, box-shadow 120ms;
+}
+
+.waitlist-form button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 180, 84, 0.3);
+}
+
+.waitlist-form button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.waitlist-hint {
+  font-size: 11px;
+  opacity: 0.6;
+  margin: 0;
+}
+
+.waitlist-error {
+  color: #ff7676;
+  font-size: 12px;
+  margin: 0;
+}
+
+.waitlist-success {
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: rgba(120, 220, 130, 0.1);
+  border: 1px solid rgba(120, 220, 130, 0.3);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.waitlist-success strong {
+  color: #78dc82;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.waitlist-success p {
+  margin: 0;
+  opacity: 0.85;
+  line-height: 1.5;
+}
+
 /* ---------- welcome banner (post-Stripe-checkout) ---------- */
 
 .welcome-banner {

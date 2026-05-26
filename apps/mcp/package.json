@@ -1,0 +1,56 @@
+{
+  "name": "pinnedai-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Pinned — lets Claude Desktop, Cursor, Cline, and any MCP-aware AI tool call `pinned status`, `pinned check`, `pinned scan-diff`, `pinned list`, and `pinned review` natively. AI tools autodiscover the pinned tools and can suggest `pinned init` on unprotected repos.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "pinnedai-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup src/server.ts --format esm --target node20 --out-dir dist --shims --clean",
+    "dev": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "cursor",
+    "cline",
+    "pinnedai",
+    "ai-coding",
+    "regression-testing"
+  ],
+  "author": "Michael Zon",
+  "homepage": "https://pinnedai.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pinnedai/pinnedai.git",
+    "directory": "apps/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/pinnedai/pinnedai/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.9",
+    "tsup": "8.5.1",
+    "tsx": "4.20.0",
+    "typescript": "5.6.3"
+  }
+}

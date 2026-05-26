@@ -1,0 +1,6 @@
+{
+  "name": "fixture-01-express-requireauth",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module"
+}

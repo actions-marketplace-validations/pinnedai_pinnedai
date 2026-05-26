@@ -15,9 +15,43 @@ import type { Claim } from "./claimParser.js";
 import { claimKey } from "./claimParser.js";
 import type { RegistryEntry } from "./registry.js";
 import type { ChangedFile } from "./scanDiff.js";
-import { scanDiffFull } from "./scanDiff.js";
+import { scanDiffFull, findUnprotectedSiblings, AUTH_CHECK_PATTERNS, detectAuthChecksInDiff, detectValidationAddedInDiff, type DiffByFile } from "./scanDiff.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+
+// Build a synthetic DiffByFile from the current file contents of every
+// non-deleted changed file. Treating the WHOLE file as "added lines"
+// over-captures slightly (a signature already present in the parent
+// also gets captured) — but for staticVerify purposes that's fine: the
+// pin still passes when the signature is present and fails only when
+// it's later removed. Captures auth in baseline scans where there's no
+// diff at all, AND in diff scans where the line-level diff is more
+// expensive to compute than just reading the file. See [[launch-bar-walk-forward-catches]].
+function buildSyntheticDiffByFile(repoRoot: string, changedFiles: ChangedFile[]): DiffByFile {
+  const out: DiffByFile = new Map();
+  for (const f of changedFiles) {
+    if (f.status === "deleted") continue;
+    try {
+      const content = readFileSync(join(repoRoot, f.path), "utf8");
+      out.set(f.path, content.split("\n"));
+    } catch {
+      /* file missing or unreadable — skip */
+    }
+  }
+  return out;
+}
+
+// Validation patterns matched in backtest.ts collectSiblings(). Kept
+// inline here so autoProtect doesn't depend on backtest's internals.
+const VALIDATION_SIBLING_PATTERNS: RegExp[] = [
+  /\bz\.object\s*\(/,
+  /\.parseAsync\s*\(/,
+  /\.safeParse(?:Async)?\s*\(/,
+  /\byup\.object\s*\(/,
+  /\bvalidate\s*\([^)]*req\.body/,
+  /\bschema\.parse\s*\(/,
+  /\b(?:reply|res)\.(?:code|status)\s*\(\s*400\b/,
+];
 
 export type AutoProtectMode = "safe" | "ask" | "off";
 
@@ -159,6 +193,57 @@ export function classifyDiff(input: ClassifyInput): ClassifyResult {
     prBodyClaims: input.prBodyClaims,
     existingPins: input.existingPins,
   });
+
+  // staticVerify capture: read current file contents of changed files
+  // and run the diff-aware auth/validation detectors against them
+  // (treating each file as if all lines were just added). This gives us
+  // a static-mode fingerprint so the generated test can verify the pin
+  // WITHOUT a live PREVIEW_URL. Before this fix, all auto-generated
+  // auth/returns-status pins shipped with no staticVerify and were
+  // INERT in CI for any customer not setting PREVIEW_URL. See
+  // [[launch-bar-walk-forward-catches]].
+  const syntheticDiff = buildSyntheticDiffByFile(input.repoRoot, input.changedFiles);
+  const authHitsByRoute = new Map<string, { filePath: string; signature: string }>();
+  const validationHitsByRoute = new Map<string, { filePath: string; signature: string }>();
+  let middlewareAuth: { filePath: string; signature: string } | null = null;
+  try {
+    for (const h of detectAuthChecksInDiff(syntheticDiff)) {
+      authHitsByRoute.set(h.route, { filePath: h.filePath, signature: h.signature });
+      // Global auth middleware detected → upgrade to first-class signal.
+      // When present, individual per-route auth-required suggestions
+      // from scanDiffFull's path-shape detection become redundant noise
+      // (they ship inert because the auth signature lives in middleware,
+      // not in each route file). See [[launch-bar-walk-forward-catches]]
+      // — discovered via quantapact (Next.js middleware.ts + flat
+      // api/admin-*.ts endpoints).
+      if (h.route === "* (middleware)" && !middlewareAuth) {
+        middlewareAuth = { filePath: h.filePath, signature: h.signature };
+      }
+    }
+    for (const h of detectValidationAddedInDiff(syntheticDiff)) {
+      validationHitsByRoute.set(h.route, { filePath: h.filePath, signature: h.signature });
+    }
+  } catch {
+    /* detector errors must not block pin emission */
+  }
+
+  // Emit the middleware pin FIRST (before per-route loop). Its
+  // staticVerify gives us a no-PREVIEW_URL catch path on every
+  // downstream route via the single middleware file.
+  if (middlewareAuth) {
+    tryEmit({
+      claim: {
+        template: "auth-required",
+        route: "* (middleware)",
+        raw: `auth check in ${middlewareAuth.filePath}`,
+        staticVerify: middlewareAuth,
+      },
+      reason: `global auth middleware in ${middlewareAuth.filePath} protects all downstream routes`,
+      triggeredBy: middlewareAuth.filePath,
+      decision: "safe",
+    });
+  }
+
   for (const s of scan.suggestions) {
     if (s.files.some(isSkipped)) continue;
     const route = s.route ?? "";
@@ -166,8 +251,11 @@ export function classifyDiff(input: ClassifyInput): ClassifyResult {
     if (s.template === "auth-required" && route && isAdminShape(route)) {
       // Admin / internal routes — SAFE auto-pin. Asserting "401 or 403
       // without an Authorization header" is deterministic.
+      const sv = authHitsByRoute.get(route);
       tryEmit({
-        claim: { template: "auth-required", route, raw: s.suggestedPin },
+        claim: sv
+          ? { template: "auth-required", route, raw: s.suggestedPin, staticVerify: sv }
+          : { template: "auth-required", route, raw: s.suggestedPin },
         reason: `protects ${route} from being publicly accessible`,
         triggeredBy: s.files[0],
         decision: "safe",
@@ -176,8 +264,11 @@ export function classifyDiff(input: ClassifyInput): ClassifyResult {
     }
     if (s.template === "auth-required" && route) {
       // Non-admin route. Could be intentional public surface. ASK.
+      const sv = authHitsByRoute.get(route);
       tryEmit({
-        claim: { template: "auth-required", route, raw: s.suggestedPin },
+        claim: sv
+          ? { template: "auth-required", route, raw: s.suggestedPin, staticVerify: sv }
+          : { template: "auth-required", route, raw: s.suggestedPin },
         reason: s.reason,
         triggeredBy: s.files[0],
         decision: "ask",
@@ -208,6 +299,23 @@ export function classifyDiff(input: ClassifyInput): ClassifyResult {
         reason: s.reason,
         triggeredBy: s.files[0],
         decision: "ask",
+      });
+      continue;
+    }
+    if (s.template === "returns-status" && route) {
+      // Validation-added pin. SAFE auto-add — the assertion is
+      // deterministic ("POST <route> with bad body returns 400") and
+      // staticVerify (when present) gives a no-preview-URL fallback.
+      // Before this fix, scanDiffFull's returns-status suggestions
+      // were silently dropped by classifyDiff. See [[launch-bar-walk-forward-catches]].
+      const sv = validationHitsByRoute.get(route);
+      tryEmit({
+        claim: sv
+          ? { template: "returns-status", route, method: "POST", status: 400, raw: s.suggestedPin, staticVerify: sv }
+          : { template: "returns-status", route, method: "POST", status: 400, raw: s.suggestedPin },
+        reason: s.reason,
+        triggeredBy: s.files[0],
+        decision: "safe",
       });
       continue;
     }
@@ -302,6 +410,63 @@ export function classifyDiff(input: ClassifyInput): ClassifyResult {
           reason: `new \`${flag}\` flag on \`${cmdName}\` — assert it's accepted`,
           triggeredBy: f.path,
           decision: "ask",
+        });
+      }
+    }
+  }
+
+  // Sibling discovery (auto, no user trigger). After classifying the
+  // direct catches in the diff, scan the repo for files that LOOK
+  // sibling-shaped (same admin/account/internal prefix family) but
+  // contain no matching auth/validation signature. Auto-emit as safe
+  // candidates so they get pinned on the same commit. Per
+  // [[sibling-discovery-confidence-tiered-no-approval]]: high-confidence
+  // siblings are auto-pinned; medium are also added here because the
+  // user's decision was to bias toward catch-coverage rather than the
+  // stricter observe→active lifecycle in this iteration.
+  const directSafe = [...safe];
+  for (const cand of directSafe) {
+    if (cand.claim.template !== "auth-required" && cand.claim.template !== "returns-status") continue;
+    const route = (cand.claim as { route?: string }).route;
+    if (!route) continue;
+    const category: "auth" | "validation" =
+      cand.claim.template === "auth-required" ? "auth" : "validation";
+    const patterns = category === "auth" ? AUTH_CHECK_PATTERNS : VALIDATION_SIBLING_PATTERNS;
+    let siblings: ReturnType<typeof findUnprotectedSiblings>;
+    try {
+      siblings = findUnprotectedSiblings({
+        repoPath: input.repoRoot,
+        patterns,
+        triggerFilePath: cand.triggeredBy,
+        triggerRoute: route,
+        category,
+      });
+    } catch {
+      continue;
+    }
+    for (const s of siblings) {
+      if (s.confidence === "low") continue;
+      const siblingRoute = s.route ?? "";
+      if (!siblingRoute) continue;
+      if (cand.claim.template === "auth-required") {
+        tryEmit({
+          claim: { template: "auth-required", route: siblingRoute, raw: `auth required on ${siblingRoute}` },
+          reason: `sibling of ${route} — no auth signature found in ${s.filePath}`,
+          triggeredBy: s.filePath,
+          decision: "safe",
+        });
+      } else {
+        tryEmit({
+          claim: {
+            template: "returns-status",
+            route: siblingRoute,
+            method: (cand.claim as { method?: "POST" | "PUT" | "PATCH" }).method ?? "POST",
+            status: 400,
+            raw: `${siblingRoute} returns 400 on bad body`,
+          },
+          reason: `sibling of ${route} — no validation signature found in ${s.filePath}`,
+          triggeredBy: s.filePath,
+          decision: "safe",
         });
       }
     }

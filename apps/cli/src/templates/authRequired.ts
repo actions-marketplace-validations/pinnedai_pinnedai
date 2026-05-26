@@ -38,6 +38,8 @@ export function generateAuthRequiredTest(
 // ═══════════════════════════════════════════════════════════════
 
 import { describe, it, expect, beforeAll } from "vitest";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 ${PINNED_FETCH_HELPER_SRC}
 const PREVIEW_URL = process.env.PREVIEW_URL;
 const ROUTE = ${JSON.stringify(claim.route)};
@@ -45,6 +47,15 @@ const ORIGINAL_PR = ${JSON.stringify(opts.prId)};
 const ORIGINAL_CLAIM = ${JSON.stringify(claim.raw)};
 const BAD_CASE = ${JSON.stringify(badCaseForClaim(claim))};
 const TEST_FILENAME = ${JSON.stringify(filename)};
+// Static-mode fingerprint. Present when this pin was generated from
+// a diff-aware detector that observed the auth check being added —
+// the captured signature lets us verify the check is still present
+// in source even without a live server. Production (PREVIEW_URL set)
+// always uses the live fetch path; the static check runs in addition,
+// catching the "AI deleted the auth code from source" failure mode
+// that a live test can also catch but for which a static signal is
+// faster + cheaper.
+const STATIC_VERIFY = ${JSON.stringify(claim.staticVerify ?? null)};
 // Optional fixture token for the "authed → 2xx" direction. When
 // present, the with-auth direction runs and catches over-tightening
 // regressions (route accidentally blocked even for authenticated users).
@@ -92,6 +103,93 @@ describe("pinned: auth-required on " + ROUTE, () => {
       );
     }
   });
+
+  // Static-mode check — runs whenever the pin carries a fingerprint
+  // (diff-aware pins always do; PR-claim-derived pins don't). Reads
+  // the source file the auth check was added to and asserts the
+  // captured signature is still present. Catches:
+  //   - AI deleted the auth check from the route file
+  //   - Refactor moved the route to a new file without the auth code
+  // Does NOT catch: auth check replaced with a weaker one that
+  // happens to contain the same signature substring (rare; live
+  // mode catches that).
+  it.skipIf(!STATIC_VERIFY)(
+    "source still contains the auth check captured at pin time",
+    () => {
+      const sv = STATIC_VERIFY!;
+      const abs = resolvePath(process.cwd(), sv.filePath);
+      if (!existsSync(abs)) {
+        throw new Error(
+          [
+            "",
+            "═══ PINNED FAILURE — paste this into Claude Code / Cursor ═══",
+            "",
+            "Pinned auth-required pin failed (static check):",
+            "  Claim: " + ORIGINAL_CLAIM,
+            "  Original PR: " + ORIGINAL_PR,
+            "  Route: " + ROUTE,
+            "  Expected file: " + sv.filePath + " (missing)",
+            "",
+            "The route handler file that originally contained the auth check",
+            "no longer exists. Either the file was renamed/moved, or the",
+            "auth code was removed along with the file.",
+            "",
+            "If this is an intentional refactor, retire the pin:",
+            "  pinned retire " + ORIGINAL_PR + " --reason=\\"refactor: route moved\\"",
+            "═══════════════════════════════════════════════════════════════",
+            "",
+          ].join("\\n")
+        );
+      }
+      const raw = readFileSync(abs, "utf8");
+      // Strip comments before searching so a parent file's
+      // "// TODO: add requireAuth()" doesn't falsely satisfy the
+      // signature check and mask a real catch. Same comment-stripping
+      // the diff-aware detector uses when it captures the signature
+      // — keeps the two ends symmetric.
+      const content = raw
+        .split("\\n")
+        .map((l: string) => l.replace(/\\/\\/.*$/, ""))
+        .join("\\n")
+        .replace(/\\/\\*[\\s\\S]*?\\*\\//g, "");
+      // Format-normalize both content and signature before comparing.
+      // Lint reformatters (Prettier, ESLint --fix) often collapse
+      // multi-line expressions or rearrange trailing commas. Without
+      // normalization, a captured single-line signature wouldn't match
+      // the same logical code split across lines in the parent — producing
+      // FALSE POSITIVE catches on pure lint commits.
+      // See [[lint-format-false-positives]] memory.
+      const normalizeForSig = (s: string) => s.replace(/\\s+/g, "").replace(/,(?=[)\\]}])/g, "");
+      const contentN = normalizeForSig(content);
+      const sigN = normalizeForSig(sv.signature);
+      if (!contentN.includes(sigN)) {
+        throw new Error(
+          [
+            "",
+            "═══ PINNED FAILURE — paste this into Claude Code / Cursor ═══",
+            "",
+            "Pinned auth-required pin failed (static check):",
+            "  Claim: " + ORIGINAL_CLAIM,
+            "  Original PR: " + ORIGINAL_PR,
+            "  Route: " + ROUTE,
+            "  File: " + sv.filePath,
+            "  Missing auth signature: " + sv.signature,
+            "",
+            "The auth check that protects " + ROUTE + " has been removed or",
+            "changed. The original fix introduced the snippet above; it's",
+            "no longer present in the file.",
+            "",
+            "Restore the auth check, OR — if the route legitimately no longer",
+            "requires auth — retire the pin:",
+            "  pinned retire " + ORIGINAL_PR + " --reason=\\"...\\"",
+            "═══════════════════════════════════════════════════════════════",
+            "",
+          ].join("\\n")
+        );
+      }
+      expect(contentN.includes(sigN)).toBe(true);
+    }
+  );
 
   // Direction 1 — REMOVAL CHECK (always runs given PREVIEW_URL)
   // Catches: auth check stripped from the route entirely.

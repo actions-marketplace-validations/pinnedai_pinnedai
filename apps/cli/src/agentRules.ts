@@ -20,8 +20,7 @@ export const AGENT_MD = `# AGENT.md — pinnedai rules for AI coding agents
 ### Before marking a task complete
 
 1. Run the relevant test suite (\`pnpm test\`, \`npm test\`, etc.).
-2. Run \`npm run pinned:test\` (or \`npx pinnedai test\` if no script
-   exists).
+2. Run \`npx pinnedai test\` to verify Pinned guards still pass.
 3. If any test in \`tests/pinned/*.test.ts\` fails, **do not skip or
    delete it**. It fails because a PR description from the past
    claimed something that you've now regressed. Fix the regression,
@@ -106,8 +105,7 @@ this be invasive?) was already passed at init time.
 \`\`\`bash
 pinned retire <claim-id>          # destructive — removes pin from active set
 pinned init --force               # overwrites existing scaffolding
-pinned ai-rules install/uninstall # modifies CLAUDE.md / .cursorrules markers
-pinned hooks uninstall            # removes git hooks
+pinned ai-rules uninstall         # removes the Pinned block from CLAUDE.md / .cursorrules
 \`\`\`
 
 These are repo-state-changing operations the user did NOT pre-authorize
@@ -137,26 +135,15 @@ ignore Pinned output that fires too often.
 
 #### Do not invent commands
 
-The complete authorized command set is exactly:
+**Always run \`pinned --help\` (or \`pinned <subcommand> --help\`) to see
+the full, current command list before invoking anything you're unsure
+about.** The CLI is the source of truth; this rules file deliberately
+does not enumerate every command (the list drifts as the CLI evolves).
 
-\`\`\`
-pinned init          pinned generate      pinned retire
-pinned test          pinned status        pinned show
-pinned catches       pinned list          pinned baseline
-pinned protect       pinned auto-protect  pinned scan (alias: scan-diff)
-pinned scan-pr       pinned safety        pinned check
-pinned doctor        pinned watch         pinned fix-prompt
-pinned statusline    pinned hook-failure  pinned try
-pinned hooks         pinned ai-rules
-\`\`\`
-
-If you reach for \`pinned fix\` / \`pinned process-queue\` / \`pinned
-review\` / \`pinned analyze\` — those don't exist. Run \`pinned --help\`
-to confirm the available commands rather than hallucinating one.
-
-If you genuinely need a capability not in this list, tell the user
-"Pinned doesn't have a built-in command for X; here's how to do it
-with the existing commands…" rather than running a non-existent one.
+If \`pinned --help\` doesn't list the command you want, it doesn't
+exist — tell the user "Pinned doesn't have a built-in command for X;
+here's how to do it with the existing commands…" rather than
+hallucinating one.
 
 ### The \`X-Pinned-Test: 1\` header convention
 
@@ -330,9 +317,18 @@ export const AGENT_RULE_FILE_CANDIDATES = [
 export function agentRulesBlockFor(_targetFile: string): string {
   return [
     AGENT_INSTALL_MARKER_START,
+    "<!-- ═══════════════════════════════════════════════════════════════ -->",
+    "<!--   Pinned added the block below with your permission (during      -->",
+    "<!--   `pinned init`). Remove with `pinned ai-rules uninstall`.       -->",
+    "<!--   To see ALL repo-specific rules Pinned has learned, read:       -->",
+    "<!--     .pinned/ai-lessons.md                                        -->",
+    "<!-- ═══════════════════════════════════════════════════════════════ -->",
+    "",
     "## Pinned",
     "",
     "This repo uses Pinned to protect important behavior with tests in `tests/pinned/`. See `tests/pinned/AGENT.md` for the full reference (claim shapes, commands, examples).",
+    "",
+    "**Read `.pinned/ai-lessons.md` first.** It contains repo-specific lessons from past bug fixes and guard-integrity blocks. Following those lessons is how you avoid repeating mistakes here.",
     "",
     "Rules:",
     "1. Before marking coding work complete, run the relevant test suite, including Pinned tests when affected.",
@@ -341,6 +337,8 @@ export function agentRulesBlockFor(_targetFile: string): string {
     "4. If the intended behavior changed, ask the user before retiring or updating the pin.",
     "5. If you changed auth, payments, webhooks, booking, env vars, or public API routes, mention that Pinned should check the change.",
     "6. Pinned catches are double-confirmed (re-run twice) to filter transient flakes, but rare false positives still happen (cold-start preview, expired test creds, network blips). If a failure looks unrelated to the actual code change, re-run `npx vitest run <file>` before changing application code; if both runs fail consistently, the contract is genuinely broken — fix the code.",
+    "",
+    "<!--  End of Pinned-added content.  -->",
     AGENT_INSTALL_MARKER_END,
   ].join("\n");
 }

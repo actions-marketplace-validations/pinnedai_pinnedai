@@ -17,12 +17,41 @@ export type RateLimitClaim = {
   rate: number;
   window: "second" | "minute" | "hour";
   raw: string;
+  // Same shape as auth-required's. When present, the generated test
+  // does a static-mode check that the rate-limit signature observed
+  // in the diff is still present in source. Lets the bug-fix
+  // benchmark replay catch "AI removed the rate limiter" without a
+  // live server.
+  staticVerify?: {
+    filePath: string;
+    signature: string;
+  };
 };
 
 export type AuthRequiredClaim = {
   template: "auth-required";
   route: string;
   raw: string;
+  // Optional static-mode fingerprint. When present, the generated
+  // test can verify the pin WITHOUT a live server: it reads the
+  // source file at `filePath` and asserts the auth signature is
+  // still present. Catches the "AI deleted the auth check" class —
+  // the failure mode that bug-fix benchmarks need to detect when
+  // no PREVIEW_URL is available.
+  //
+  // Lateral-propagation friendly: the same signature set used to
+  // detect the addition is the one we re-check for at run time, so
+  // a future "find similar routes without this signature" detector
+  // can reuse it.
+  staticVerify?: {
+    filePath: string;
+    // A short regex (as a string, anchored to a single line) that
+    // must match somewhere in the file. Generated at pin time from
+    // the actual auth-check pattern observed in the diff — so the
+    // pin protects whatever auth shape the fix introduced (Clerk,
+    // Supabase, Bearer header, custom middleware, etc.).
+    signature: string;
+  };
 };
 
 export type IdempotentClaim = {
@@ -30,6 +59,13 @@ export type IdempotentClaim = {
   route: string;
   idField: string;
   raw: string;
+  // Static-mode fingerprint — same shape as auth-required's. When
+  // present, the generated test reads the source file and asserts
+  // the captured idempotency-check signature is still there.
+  staticVerify?: {
+    filePath: string;
+    signature: string;
+  };
 };
 
 // CLI claim: "`pinned doctor` outputs `tests/pinned/ directory`."
@@ -218,29 +254,52 @@ export function classifyPinStrength(
     case "config-invariant":
     case "package-exports-exist":
     case "secret-not-public":
+    case "url-literal-preserved":
+    case "module-export-stable":
+    case "react-route-registered":
+    case "webhook-handler-exists":
+    case "import-path-resolves":
+    case "changed-literal-preserved":
+    case "form-submit-error-handling":
       // Static guardrails — file/config checks. Real-value but not
       // behavioral verification.
       return "guardrail";
+    case "tsc-clean":
+      // tsc --noEmit is deterministic build verification — strong
+      // enough to count as behavioral (catches actual build breaks).
+      return "behavioral";
   }
 }
 
-// Lockfile-integrity claim. Asserts the SHA-256 of one of the
-// supported lockfiles (package-lock.json / pnpm-lock.yaml / yarn.lock /
-// bun.lockb) at pin time. Subsequent runs that find a different hash
-// fail the pin — catches AI agents that regenerate the lockfile (via
-// `npm install` / `pnpm install`) and inadvertently change transitive
-// dependency resolutions, leading to mystery breakage on the next CI
-// build.
+// Lockfile-integrity claim. Detects the *suspicious* class of lockfile
+// changes — NOT every lockfile edit. Gating logic at runtime:
+//   - lockfile missing                          → FAIL ("removed / pm switched")
+//   - lockfile sha unchanged                    → PASS
+//   - lockfile sha changed, package.json sha
+//     also changed                              → PASS (legitimate dep update)
+//   - lockfile sha changed, package.json sha
+//     unchanged                                 → FAIL (silent regen — the bug)
 //
-// Single-purpose template: no PR-claim parsing path (the user doesn't
-// say "lockfile sha matches"). Auto-emitted at baseline-on-init when
-// a lockfile is detected on disk.
+// The "silent regen" case is the only one users care about: an AI agent
+// ran `npm install` for no declared reason, transitive deps shifted,
+// build is now mystery-fragile. Generic dep updates (where the user
+// also bumped package.json) are noise and we suppress them.
+//
+// packageJsonSha256 is optional for backward compat with pins created
+// before this gating was added (those behave as the old "hash equality"
+// pin — strict but noisy). New baselines always populate it.
+//
+// Single-purpose template: no PR-claim parsing path. Auto-emitted at
+// baseline-on-init when a lockfile is detected on disk.
 export type LockfileIntegrityClaim = {
   template: "lockfile-integrity";
   // The lockfile relative path from repo root.
   lockfilePath: string;
-  // The pinned sha256 hex digest.
+  // The pinned sha256 hex digest of the lockfile.
   expectedSha256: string;
+  // SHA-256 of package.json at pin time. When present, gating logic
+  // suppresses dep-update noise. Optional for pre-v0.1.x compat.
+  packageJsonSha256?: string;
   raw: string;
 };
 
@@ -310,6 +369,13 @@ export type PermissionRequiredClaim = {
   // name (PREVIEW_TEST_TOKEN_ADMIN, PREVIEW_TEST_TOKEN_STAFF).
   role: string;
   raw: string;
+  // Static-mode fingerprint — same shape as auth-required's. When
+  // present, the generated test reads the source file and asserts
+  // the captured authorization-check signature is still there.
+  staticVerify?: {
+    filePath: string;
+    signature: string;
+  };
 };
 
 // Validation claim: "POST /api/signup returns 400 on missing email."
@@ -332,6 +398,122 @@ export type ReturnsStatusClaim = {
   // "missing" | "invalid" | "empty" | undefined
   conditionKind?: "missing" | "invalid" | "empty";
   raw: string;
+  // Static-mode fingerprint — same shape as auth-required's. When
+  // present, the generated test reads the source file and asserts
+  // the captured validation signature is still there. Used by the
+  // bug-fix benchmark to verify that a fix's added validation is
+  // still in source (not deleted by AI in a later commit). Without
+  // this carve-out, returns-status only runs with PREVIEW_URL set.
+  staticVerify?: {
+    filePath: string;
+    signature: string;
+  };
+};
+
+// ──────────────────────────────────────────────────────────────────────
+// Phase 1+2 new templates (2026-05-25) — all static-mode signature
+// checks that mirror config-invariant in spirit but carry stronger
+// semantic metadata for PINS.md / failure messages / sibling discovery.
+// Chosen for cross-repo coverage from the dyad-apps audit; each is
+// LOW FP because the signature is verified verbatim against the
+// captured-at-fix file content.
+
+// "URL literal `/api/foo` must appear in file X" — catches endpoint
+// typos / version drift / accidental URL changes. Phase 1.
+export type UrlLiteralPreservedClaim = {
+  template: "url-literal-preserved";
+  filePath: string;        // repo-relative file where the URL appears
+  urlLiteral: string;      // the exact URL string (e.g., "/api/v2/calls")
+  label: string;           // short human label, e.g., "Retell agent API"
+  raw: string;
+};
+
+// "tsc --noEmit returns 0" — catches TS build errors, syntax breaks,
+// missing imports. Phase 1.
+export type TscCleanClaim = {
+  template: "tsc-clean";
+  tsconfigPath: string;    // typically "tsconfig.json"
+  raw: string;
+};
+
+// "module X still exports name Y" — catches "missing export" bugs
+// that lint can't see. Phase 1.
+export type ModuleExportStableClaim = {
+  template: "module-export-stable";
+  modulePath: string;      // repo-relative path to the module file
+  exportName: string;      // the named export, e.g., "showWarning"
+  raw: string;
+};
+
+// "<Route path='/foo'>` still wired in router config" — catches
+// accidentally-dropped route registrations in SPA router setups
+// (react-router, tanstack-router). Phase 2.
+export type ReactRouteRegisteredClaim = {
+  template: "react-route-registered";
+  routerFilePath: string;  // e.g., "src/App.tsx"
+  routePath: string;       // e.g., "/dashboard"
+  raw: string;
+};
+
+// "Webhook handler at file X still defines POST/handler signature" —
+// stronger than auth-required for the case where the FILE is the
+// load-bearing artifact (e.g., supabase edge functions). Phase 2.
+export type WebhookHandlerExistsClaim = {
+  template: "webhook-handler-exists";
+  filePath: string;
+  // Captured handler-shape signature (e.g., "export async function POST(")
+  handlerSignature: string;
+  // Short label of which provider/event this protects (e.g., "stripe", "retell")
+  provider: string;
+  raw: string;
+};
+
+// "Import path X resolves from file Y" — catches the "fixed a missing
+// dep" / "renamed a module" regressions. Phase 2.
+export type ImportPathResolvesClaim = {
+  template: "import-path-resolves";
+  sourceFilePath: string;  // file that contains the import
+  importPath: string;      // exact import specifier (e.g., "@/lib/auth")
+  raw: string;
+};
+
+// "After a fix changed a literal value (URL / status code / env key /
+// route path) from oldValue to newValue, the post-fix file keeps the
+// newValue." — catches the LARGEST class of dyad-apps fixes per the
+// GPT review: URL typos, API version drift, status code corrections,
+// env key renames. Distinct from url-literal-preserved because the
+// DETECTOR pairs removed+added lines in the same hunk; both old and
+// new values are captured. Replay asserts newValue present. Optional
+// oldValue-absent check is observe-mode only (FP risk: refactors may
+// keep both legitimately).
+//
+// Shape categories supported by the detector:
+//   - url          (e.g., "/api/v2/foo")
+//   - host-url     (e.g., "https://api.foo.com/...")
+//   - status-code  (e.g., 400, 401, 403, 404, 429, 500)
+//   - env-key      (e.g., "NEXT_PUBLIC_FOO" → "VITE_FOO")
+//   - route-path   (e.g., "<Route path='/old'>" → "<Route path='/new'>")
+export type ChangedLiteralPreservedClaim = {
+  template: "changed-literal-preserved";
+  filePath: string;
+  oldValue: string;
+  newValue: string;
+  shape: "url" | "host-url" | "status-code" | "env-key" | "route-path";
+  raw: string;
+};
+
+// "Form onSubmit handler keeps wrapping itself in error handling
+// (try/catch or .catch)" — catches AI removing the try/catch /
+// .catch() from a form submission handler, which would surface
+// unhandled promise rejections in production. Phase 2 UI/flow pack.
+export type FormSubmitErrorHandlingClaim = {
+  template: "form-submit-error-handling";
+  filePath: string;            // file containing the form
+  // Captured signature line: the onSubmit handler reference
+  // (e.g., "onSubmit={handleSubmit}" or the full inline arrow).
+  // Verifier asserts the file still contains this signature.
+  signature: string;
+  raw: string;
 };
 
 export type Claim =
@@ -350,7 +532,15 @@ export type Claim =
   | ConfigInvariantClaim
   | LockfileIntegrityClaim
   | PackageExportsClaim
-  | SecretNotPublicClaim;
+  | SecretNotPublicClaim
+  | UrlLiteralPreservedClaim
+  | TscCleanClaim
+  | ModuleExportStableClaim
+  | ReactRouteRegisteredClaim
+  | WebhookHandlerExistsClaim
+  | ImportPathResolvesClaim
+  | ChangedLiteralPreservedClaim
+  | FormSubmitErrorHandlingClaim;
 
 // A route token: must start with ASCII `/`, must not contain whitespace,
 // trailing punctuation, OR dangerous Unicode characters (RTL-override,
@@ -1333,6 +1523,54 @@ export function describeClaimForUser(c: Claim): ClaimDisplay {
         promise: `No environment variable matching \`${c.publicPrefix}*\` ever has a secret-shaped name — catches the AI mistake of inlining a server-only secret into the client bundle.`,
         check: `Scans \`.env*\` files and source for any \`${c.publicPrefix}*<SECRET-MARKER>*\` reference; fails if any match.`,
       };
+    case "url-literal-preserved":
+      return {
+        title: `URL \`${c.urlLiteral}\` stays in \`${c.filePath}\``,
+        promise: `The exact URL literal \`${c.urlLiteral}\` keeps appearing in \`${c.filePath}\` — catches endpoint typos, version drift, and accidental redirects.`,
+        check: `Reads \`${c.filePath}\` and asserts the literal \`${c.urlLiteral}\` is present in the file content.`,
+      };
+    case "tsc-clean":
+      return {
+        title: `\`tsc --noEmit\` keeps exiting 0`,
+        promise: `TypeScript compilation succeeds without errors — catches the "TS build broken" class of fixes from being silently re-introduced.`,
+        check: `Spawns \`npx tsc --noEmit -p ${c.tsconfigPath}\`; fails on non-zero exit.`,
+      };
+    case "module-export-stable":
+      return {
+        title: `\`${c.modulePath}\` keeps exporting \`${c.exportName}\``,
+        promise: `The named export \`${c.exportName}\` stays exported from \`${c.modulePath}\` — catches the "missing export" class of bug.`,
+        check: `Reads \`${c.modulePath}\` and asserts a top-level \`export\` of \`${c.exportName}\` is present.`,
+      };
+    case "react-route-registered":
+      return {
+        title: `\`<Route path="${c.routePath}">\` stays in \`${c.routerFilePath}\``,
+        promise: `The route entry for \`${c.routePath}\` keeps being declared in the SPA router — catches the "page unreachable after refactor" regression.`,
+        check: `Reads \`${c.routerFilePath}\` and asserts a path literal matching \`${c.routePath}\` is present.`,
+      };
+    case "webhook-handler-exists":
+      return {
+        title: `${c.provider} webhook handler stays at \`${c.filePath}\``,
+        promise: `The ${c.provider} webhook handler file keeps existing and keeps its handler signature — catches deletion / renaming regressions.`,
+        check: `Reads \`${c.filePath}\` and asserts the handler signature is still present.`,
+      };
+    case "import-path-resolves":
+      return {
+        title: `\`${c.sourceFilePath}\` keeps importing \`${c.importPath}\``,
+        promise: `The import of \`${c.importPath}\` from \`${c.sourceFilePath}\` keeps resolving — catches missing-dep / module-rename regressions.`,
+        check: `Reads \`${c.sourceFilePath}\`, finds the import line, and asserts the imported module still exists on disk or in node_modules.`,
+      };
+    case "changed-literal-preserved":
+      return {
+        title: `\`${c.filePath}\` keeps the fix's ${c.shape} value \`${c.newValue}\``,
+        promise: `The fix replaced \`${c.oldValue}\` with \`${c.newValue}\` in \`${c.filePath}\`. The new value keeps being present — catches the regression where the typo/wrong value silently comes back.`,
+        check: `Reads \`${c.filePath}\` and asserts the literal \`${c.newValue}\` is present in the file content.`,
+      };
+    case "form-submit-error-handling":
+      return {
+        title: `form submit handler in \`${c.filePath}\` keeps catching errors`,
+        promise: `The form's onSubmit handler keeps wrapping itself in try/catch or .catch — catches AI accidentally removing the error handling and producing unhandled promise rejections in production.`,
+        check: `Reads \`${c.filePath}\` and asserts the captured onSubmit + error-handling shape is still present.`,
+      };
   }
 }
 
@@ -1438,6 +1676,22 @@ export function badCaseForClaim(claim: Claim): string {
       return `\`${claim.modulePath}\` no longer exports one of [${claim.exports.join(", ")}] — a public-API symbol was renamed, deleted, or relocated`;
     case "secret-not-public":
       return `a \`${claim.publicPrefix}\` env var with a secret-shaped suffix (${claim.secretMarkers.join(", ")}) was introduced — would leak a server secret into the client bundle`;
+    case "url-literal-preserved":
+      return `the URL literal \`${claim.urlLiteral}\` was removed or changed in \`${claim.filePath}\` (endpoint drift / typo regression)`;
+    case "tsc-clean":
+      return `\`tsc --noEmit\` exited non-zero (TypeScript build or type error introduced)`;
+    case "module-export-stable":
+      return `\`${claim.modulePath}\` no longer exports \`${claim.exportName}\` — consumers will fail at runtime / build`;
+    case "react-route-registered":
+      return `the route registration for \`${claim.routePath}\` was removed from \`${claim.routerFilePath}\` — page unreachable`;
+    case "webhook-handler-exists":
+      return `the ${claim.provider} webhook handler at \`${claim.filePath}\` no longer matches its captured signature — handler removed or shape changed`;
+    case "import-path-resolves":
+      return `\`${claim.sourceFilePath}\` imports \`${claim.importPath}\` but the module no longer resolves (renamed, deleted, or dep removed)`;
+    case "changed-literal-preserved":
+      return `\`${claim.filePath}\` no longer contains the fix's new value \`${claim.newValue}\` (${claim.shape}: the typo / drift / regression came back)`;
+    case "form-submit-error-handling":
+      return `the form in \`${claim.filePath}\` no longer wraps its submit handler in try/catch or .catch — async errors will surface as unhandled rejections`;
   }
 }
 
@@ -1499,7 +1753,20 @@ export function claimRoute(c: Claim): string | null {
     case "config-invariant":
     case "package-exports-exist":
     case "secret-not-public":
+    case "tsc-clean":
+    case "module-export-stable":
+    case "import-path-resolves":
       return null;
+    case "url-literal-preserved":
+      return c.urlLiteral;
+    case "react-route-registered":
+      return c.routePath;
+    case "webhook-handler-exists":
+      return c.filePath; // file is the load-bearing artifact, not a URL path
+    case "changed-literal-preserved":
+      return c.newValue;
+    case "form-submit-error-handling":
+      return c.filePath;
   }
 }
 
@@ -1525,7 +1792,23 @@ export function claimSlug(claim: Claim): string {
             ? `exports-${claim.modulePath}`
             : claim.template === "secret-not-public"
               ? `secret-not-public-${claim.publicPrefix}`
-              : claim.route;
+              : claim.template === "url-literal-preserved"
+                ? `url-${claim.filePath}-${claim.urlLiteral}`
+                : claim.template === "tsc-clean"
+                  ? `tsc-clean-${claim.tsconfigPath}`
+                  : claim.template === "module-export-stable"
+                    ? `export-${claim.modulePath}-${claim.exportName}`
+                    : claim.template === "react-route-registered"
+                      ? `route-${claim.routerFilePath}-${claim.routePath}`
+                      : claim.template === "webhook-handler-exists"
+                        ? `webhook-${claim.filePath}-${claim.provider}`
+                        : claim.template === "import-path-resolves"
+                          ? `import-${claim.sourceFilePath}-${claim.importPath}`
+                          : claim.template === "changed-literal-preserved"
+                            ? `changed-${claim.shape}-${claim.filePath}-${claim.newValue}`
+                            : claim.template === "form-submit-error-handling"
+                              ? `form-error-${claim.filePath}`
+                              : claim.route;
   const route = routeSource
     .replace(/^\//, "")
     .replace(/[^a-z0-9]+/gi, "-")
@@ -1596,6 +1879,22 @@ export function claimKey(c: Claim): string {
       return `package-exports-exist:${c.modulePath}:${[...c.exports].sort().join(",")}`;
     case "secret-not-public":
       return `secret-not-public:${c.publicPrefix}:${[...c.secretMarkers].sort().join(",")}`;
+    case "url-literal-preserved":
+      return `url-literal-preserved:${c.filePath}:${c.urlLiteral}`;
+    case "tsc-clean":
+      return `tsc-clean:${c.tsconfigPath}`;
+    case "module-export-stable":
+      return `module-export-stable:${c.modulePath}:${c.exportName}`;
+    case "react-route-registered":
+      return `react-route-registered:${c.routerFilePath}:${c.routePath}`;
+    case "webhook-handler-exists":
+      return `webhook-handler-exists:${c.filePath}:${c.provider}`;
+    case "import-path-resolves":
+      return `import-path-resolves:${c.sourceFilePath}:${c.importPath}`;
+    case "changed-literal-preserved":
+      return `changed-literal-preserved:${c.shape}:${c.filePath}:${c.newValue}`;
+    case "form-submit-error-handling":
+      return `form-submit-error-handling:${c.filePath}`;
   }
 }
 

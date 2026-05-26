@@ -1,0 +1,10 @@
+{
+  "category": "returns-status-on-bad-body",
+  "variation": "plain-ts-fastify",
+  "fixSubject": "fix: reject empty name on POST /api/projects with 400",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["returns-status"],
+    "containingFile": "src/routes/projects.ts"
+  }
+}

@@ -202,6 +202,62 @@ function preflight(claim: Claim, cwd: string): string | null {
     case "secret-not-public":
       // Repo-wide scan; nothing to pre-validate.
       return null;
+    case "url-literal-preserved": {
+      const full = join(cwd, claim.filePath);
+      if (!existsSync(full)) {
+        return `file ${claim.filePath} doesn't exist yet — pin is saved, will verify once it lands`;
+      }
+      return null;
+    }
+    case "tsc-clean": {
+      const full = join(cwd, claim.tsconfigPath);
+      if (!existsSync(full)) {
+        return `${claim.tsconfigPath} doesn't exist — pin is saved, will skip until tsconfig lands`;
+      }
+      return null;
+    }
+    case "module-export-stable": {
+      const full = join(cwd, claim.modulePath);
+      if (!existsSync(full)) {
+        return `module ${claim.modulePath} doesn't exist yet — pin is saved, will verify once it lands`;
+      }
+      return null;
+    }
+    case "react-route-registered": {
+      const full = join(cwd, claim.routerFilePath);
+      if (!existsSync(full)) {
+        return `router file ${claim.routerFilePath} doesn't exist yet — pin is saved, will verify once it lands`;
+      }
+      return null;
+    }
+    case "webhook-handler-exists": {
+      const full = join(cwd, claim.filePath);
+      if (!existsSync(full)) {
+        return `webhook file ${claim.filePath} doesn't exist yet — pin is saved, will verify once it lands`;
+      }
+      return null;
+    }
+    case "import-path-resolves": {
+      const full = join(cwd, claim.sourceFilePath);
+      if (!existsSync(full)) {
+        return `source file ${claim.sourceFilePath} doesn't exist yet — pin is saved, will verify once it lands`;
+      }
+      return null;
+    }
+    case "changed-literal-preserved": {
+      const full = join(cwd, claim.filePath);
+      if (!existsSync(full)) {
+        return `file ${claim.filePath} doesn't exist yet — pin is saved, will verify once it lands`;
+      }
+      return null;
+    }
+    case "form-submit-error-handling": {
+      const full = join(cwd, claim.filePath);
+      if (!existsSync(full)) {
+        return `form file ${claim.filePath} doesn't exist yet — pin is saved, will verify once it lands`;
+      }
+      return null;
+    }
   }
 }
 

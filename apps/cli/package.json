@@ -1,7 +1,7 @@
 {
   "name": "pinnedai",
-  "version": "0.0.1",
-  "description": "Pin PR description claims as permanent CI tests. AI agents write PRs that claim to do things — Pinned makes them prove it. Future regressions break CI with a back-reference to the original PR.",
+  "version": "0.1.0",
+  "description": "Stop your AI coder from repeating bugs. Free beta · Founder Pro waitlist open. Pinned captures bug patterns, builds regression guards, audits sibling code paths, and blocks future AI edits that break or weaken those guards. Bug → guard → siblings audited → future edits checked → AI lesson saved.",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "scripts/postinstall.cjs",
+    "vscode-extension.vsix",
     "README.md",
     "LICENSE"
   ],

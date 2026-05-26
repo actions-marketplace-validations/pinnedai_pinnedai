@@ -1,0 +1,15 @@
+name = "pinned-waitlist"
+main = "worker.ts"
+compatibility_date = "2024-09-01"
+
+# Run `npx wrangler kv:namespace create PINNED_WAITLIST` and paste the
+# returned `id` here. Also create a `preview_id` for `wrangler dev`.
+[[kv_namespaces]]
+binding = "PINNED_WAITLIST"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+
+# Optional — comma-separated list of allowed Origins. If unset, defaults
+# to pinnedai.dev + common localhost dev URLs.
+# [vars]
+# ALLOWED_ORIGINS = "https://pinnedai.dev,https://www.pinnedai.dev"

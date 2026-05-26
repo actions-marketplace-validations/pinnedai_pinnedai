@@ -54,6 +54,9 @@ const ORIGINAL_PR = ${JSON.stringify(opts.prId)};
 const ORIGINAL_CLAIM = ${JSON.stringify(claim.raw)};
 const BAD_CASE = ${JSON.stringify(badCaseForClaim(claim))};
 const TEST_FILENAME = ${JSON.stringify(filename)};
+// Static-mode fingerprint — present when generated from a diff-aware
+// bug-fix detector that observed the rate-limiter being added.
+const STATIC_VERIFY = ${JSON.stringify(claim.staticVerify ?? null)};
 
 function repairPrompt(actualStatuses: number[]): string {
   return [
@@ -84,6 +87,59 @@ describe("pinned: rate-limit on " + ROUTE + " (" + RATE + "/" + WINDOW + ")", ()
   // PINNED_REQUIRE_PREVIEW_URL=1.
   const previewMissing = !PREVIEW_URL;
   const forceRequire = process.env.PINNED_REQUIRE_PREVIEW_URL === "1";
+
+  it.skipIf(!STATIC_VERIFY)(
+    "source still contains the rate-limit signature captured at pin time",
+    () => {
+      const sv = STATIC_VERIFY!;
+      const result = pinnedStaticVerify(sv);
+      if (result?.kind === "file-missing") {
+        throw new Error([
+          "",
+          "═══ PINNED FAILURE — paste this into Claude Code / Cursor ═══",
+          "",
+          "Pinned rate-limit pin failed (static check):",
+          "  Claim: " + ORIGINAL_CLAIM,
+          "  Original PR: " + ORIGINAL_PR,
+          "  Route: " + ROUTE,
+          "  Expected file: " + sv.filePath + " (missing)",
+          "",
+          "The file that contained the rate-limit code no longer exists.",
+          "Either it was renamed/moved, or the limiter was removed along",
+          "with the file.",
+          "",
+          "If this is an intentional refactor, retire the pin:",
+          "  pinned retire " + ORIGINAL_PR + " --reason=\\"refactor: limiter moved\\"",
+          "═══════════════════════════════════════════════════════════════",
+          "",
+        ].join("\\n"));
+      }
+      if (result?.kind === "signature-missing") {
+        throw new Error([
+          "",
+          "═══ PINNED FAILURE — paste this into Claude Code / Cursor ═══",
+          "",
+          "Pinned rate-limit pin failed (static check):",
+          "  Claim: " + ORIGINAL_CLAIM,
+          "  Original PR: " + ORIGINAL_PR,
+          "  Route: " + ROUTE,
+          "  File: " + sv.filePath,
+          "  Missing rate-limit signature: " + sv.signature,
+          "",
+          "The rate limiter that protects " + ROUTE + " has been removed or",
+          "changed. The original fix introduced the snippet above; it's no",
+          "longer present in the file.",
+          "",
+          "Restore the rate limiter, OR — if the route legitimately no longer",
+          "needs limiting — retire the pin:",
+          "  pinned retire " + ORIGINAL_PR + " --reason=\\"...\\"",
+          "═══════════════════════════════════════════════════════════════",
+          "",
+        ].join("\\n"));
+      }
+      expect(result).toBeNull();
+    }
+  );
 
   beforeAll(() => {
     if (previewMissing && forceRequire) {

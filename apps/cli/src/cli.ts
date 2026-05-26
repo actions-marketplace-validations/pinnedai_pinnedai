@@ -27,6 +27,7 @@ import {
   unionClaims,
   describeClaimForUser,
   detectBugFixPhrase,
+  claimSlug,
 } from "./claimParser.js";
 import type { Claim } from "./claimParser.js";
 import { classifyPinStrength, type PinStrength } from "./claimParser.js";
@@ -394,11 +395,12 @@ program
         if (!llm.ok) {
           out("No claims found via regex extraction.");
           if (llm.reason === "no-oidc-context") {
-            out("(LLM fallback skipped: no GitHub OIDC context — running outside CI.");
-            out(" Real PRs going through the GitHub Action get natural-language extraction.)");
+            out("(LLM proposer skipped: BYOK env not set. Set PINNEDAI_BYOK=claude-code");
+            out(" or PINNEDAI_BYOK=anthropic|openai|github-models with the matching key");
+            out(" for natural-language claim extraction.)");
           } else if (llm.reason === "error") {
             out(`(LLM fallback unavailable: ${llm.error.slice(0, 200)})`);
-            out(" Try again in a moment, or check api.pinnedai.dev status.");
+            out(" Check your BYOK provider's key + connectivity, then re-run.");
           }
         } else {
           out("No claims found — regex + LLM both found nothing.");
@@ -1216,6 +1218,136 @@ program
       }
     }
 
+    // 4.5. VS Code / Cursor / VSCodium statusline — install the
+    // bundled .vsix into whichever editors are on PATH. Cipherwake
+    // learned the hard way (May 2026) that Cursor users were missed
+    // when their install hook only tried \`code --install-extension\`.
+    // We try all known commands and report which editor(s) got it.
+    // The .vsix file ships in the pinnedai npm tarball alongside
+    // dist/cli.js — see apps/cli/package.json "files".
+    try {
+      const { fileURLToPath } = await import("node:url");
+      const here = fileURLToPath(import.meta.url);
+      // dist/cli.js → ../vscode-extension.vsix (one level up from dist/)
+      const vsixCandidates = [
+        join(dirname(here), "..", "vscode-extension.vsix"),  // installed npm pkg
+        join(dirname(here), "..", "..", "vscode-extension.vsix"),  // monorepo: dist/ → apps/cli/
+        join(dirname(here), "..", "..", "..", "vscode-extension", "pinnedai-vscode-0.1.0.vsix"),  // monorepo source
+      ];
+      let vsixPath = "";
+      for (const cand of vsixCandidates) {
+        if (existsSync(cand)) { vsixPath = cand; break; }
+      }
+      if (vsixPath) {
+        const editorCmds = ["code", "cursor", "code-insiders", "codium", "vscodium", "windsurf"];
+        const installed: string[] = [];
+        const failed: string[] = [];
+        for (const cmd of editorCmds) {
+          try {
+            // Check the binary is on PATH.
+            execFileSync("command", ["-v", cmd], { stdio: "ignore" });
+          } catch {
+            continue;
+          }
+          // Editor is on PATH — try to install (idempotent: --force overwrites
+          // any older bundled version without prompting).
+          try {
+            execFileSync(cmd, ["--install-extension", vsixPath, "--force"], {
+              stdio: "ignore",
+              timeout: 60_000,
+            });
+            installed.push(cmd);
+          } catch {
+            failed.push(cmd);
+          }
+        }
+        if (installed.length > 0) {
+          out(`+ Pinned statusline extension installed in: ${installed.join(", ")}`);
+        }
+        if (installed.length === 0 && failed.length === 0) {
+          // No editors found on PATH. Don't yell about it — many users
+          // are Claude-Code-only and don't need this. Just note the path.
+          out(`  (VS Code / Cursor not detected on PATH — skip extension install.`);
+          out(`   To install later: code --install-extension ${vsixPath} --force)`);
+        } else if (installed.length === 0 && failed.length > 0) {
+          out(`! VS Code/Cursor extension install failed (tried: ${failed.join(", ")}).`);
+        }
+      }
+    } catch (e) {
+      // Never block init on the extension install. Silent best-effort.
+      void e;
+    }
+
+    // 5. LLM-enhanced bug-fix proposer (optional, opt-in).
+    //
+    // Deterministic detectors catch the canonical shapes (auth, validation,
+    // idempotent, rate-limit, permission). LLM mode adds candidate
+    // discovery for custom-named helpers and cross-language fixes the
+    // regex set misses. The LLM never writes test code — it only
+    // proposes signatures that get verified against the actual diff
+    // and rendered by the same deterministic templates.
+    //
+    // Four providers; auto-detect prefers free-to-user options:
+    //   1. Claude Code passthrough — `claude` CLI on PATH (uses the
+    //      user's Pro/Max subscription, $0 to us, $0 marginal to them)
+    //   2. GitHub Models — Microsoft's free LLM tier (free, rate-limited
+    //      per GitHub user) — works with GITHUB_TOKEN or a PAT
+    //   3. Anthropic API key (BYOK) — `PINNEDAI_ANTHROPIC_KEY`
+    //   4. OpenAI API key (BYOK) — `PINNEDAI_OPENAI_KEY`
+    //
+    // GitHub Copilot ($10/mo VS Code assistant), Cursor Pro, and
+    // ChatGPT Plus do NOT expose programmatic LLM access — they're
+    // IDE-only and intentionally cannot be used here.
+    if (!opts.plan && (installAll || ttyAsk)) {
+      const wantLlm = installAll
+        ? false // auto mode keeps things conservative; only the deterministic detectors run unless the user opts in here
+        : await promptInstall({
+            title: "LLM-enhanced bug-fix proposer (optional)",
+            whatItDoes:
+              `Adds an LLM step to bug-fix mode that proposes pin candidates for behavioral patterns the regex detectors miss (custom helpers, cross-language fixes). The LLM never writes test code — only proposes signatures that pin-render through the same deterministic templates.`,
+            whyYouWant:
+              `Catches fixes whose auth/validation/idempotency/rate-limit/permission helpers use non-standard names (e.g., \`ensureAuthed()\`, \`assertOwns()\`). Skip if you don't want any network LLM call from pinned.`,
+            touches: `No files modified. You'll set environment variables (PINNEDAI_BYOK + one provider-specific key) yourself.`,
+            bypassHint: `Don't set PINNEDAI_BYOK — pinned silently runs deterministic-only.`,
+            defaultYes: false,
+          });
+      if (wantLlm) {
+        const claudeOnPath = (() => {
+          try {
+            const { execSync } = require("node:child_process") as typeof import("node:child_process");
+            execSync("command -v claude", { stdio: "ignore" });
+            return true;
+          } catch {
+            return false;
+          }
+        })();
+        const ghTokenPresent = Boolean(process.env.PINNEDAI_GITHUB_TOKEN || process.env.GITHUB_TOKEN);
+        out("");
+        out("LLM provider options — pick one and export the matching env vars:");
+        out("");
+        out(`  [1] Claude Code passthrough     ${claudeOnPath ? "(detected on PATH — recommended, $0 to you)" : "(install Claude Code first: https://claude.ai/download)"}`);
+        out(`        export PINNEDAI_BYOK=claude-code`);
+        out("");
+        out(`  [2] GitHub Models (Microsoft)   ${ghTokenPresent ? "(GITHUB_TOKEN detected — free tier)" : "(needs a GitHub PAT)"}`);
+        out(`        export PINNEDAI_BYOK=github-models`);
+        out(`        export PINNEDAI_GITHUB_TOKEN=<your gh PAT or 'gh auth token'>`);
+        out("");
+        out(`  [3] Anthropic API key (BYOK)`);
+        out(`        export PINNEDAI_BYOK=anthropic`);
+        out(`        export PINNEDAI_ANTHROPIC_KEY=sk-ant-…`);
+        out("");
+        out(`  [4] OpenAI API key (BYOK)`);
+        out(`        export PINNEDAI_BYOK=openai`);
+        out(`        export PINNEDAI_OPENAI_KEY=sk-…`);
+        out("");
+        out("  Hard kill switch (no LLM call ever):   export PINNEDAI_NO_LLM=1");
+        out("");
+        out("  GitHub Copilot, Cursor Pro, and ChatGPT Plus subscriptions");
+        out("  do NOT expose programmatic LLM access and cannot be used here.");
+        out("");
+      }
+    }
+
     // === BASELINE SCAN — auto-add high-confidence pins from current code ===
     // Runs ONLY in auto mode + only when not --plan + only when vitest
     // is available (otherwise the pins would be silently inert). The
@@ -1294,7 +1426,7 @@ program
         // pins from package.json bin entries. We prepend these to the
         // safe[] list so they win the per-template dedup against any
         // overlapping route-based suggestions.
-        const { detectCliLibraryPins, detectLockfilePins, detectConfigInvariantPins, detectPackageExportsPins, detectReturnsStatusPins, detectSecretNotPublicPins } = await import("./scanDiff.js");
+        const { detectCliLibraryPins, detectLockfilePins, detectConfigInvariantPins, detectPackageExportsPins, detectReturnsStatusPins, detectSecretNotPublicPins, detectClientFetchPins, detectWebhookSignaturePins, detectInternalLinkPins, detectPublicExposure } = await import("./scanDiff.js");
         try {
           const cliLibPins = detectCliLibraryPins(cwd);
           for (const p of cliLibPins) {
@@ -1410,6 +1542,147 @@ program
           out(`  ! returns-status detection failed: ${(e as Error).message}`);
         }
 
+        // Webhook signature pins — P0 #4. Captures the current
+        // signature-verification signature in webhook handler files
+        // (Stripe / GitHub / Resend / Twilio / Slack / generic HMAC).
+        try {
+          const whPins = detectWebhookSignaturePins(cwd);
+          for (const wh of whPins) {
+            const claim = {
+              template: "auth-required" as const,
+              route: wh.route,
+              raw: wh.suggestedPin,
+              staticVerify: { filePath: wh.filePath, signature: wh.signature },
+            };
+            try {
+              const gen = generateTest(claim, { prId });
+              const target = join(pinnedDir, gen.filename);
+              try {
+                assertInsideDir(target, pinnedDir);
+                writeFileSync(target, gen.content, { flag: "wx" });
+                registry = addEntry(registry, {
+                  claimId: gen.claimId,
+                  prId,
+                  claim,
+                  filename: gen.filename,
+                });
+                baselineAddedSummaries.push(`${wh.provider} webhook signature still verified in \`${wh.filePath}\` (catches AI stripping the signature check and letting spoofed events through)`);
+              } catch (e) {
+                if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+                  out(`  ! webhook pin write failed: ${(e as Error).message}`);
+                }
+              }
+            } catch { /* */ }
+          }
+        } catch (e) {
+          out(`  ! webhook signature detection failed: ${(e as Error).message}`);
+        }
+
+        // Internal link integrity pins — P0 #5. Captures Next.js /
+        // Remix-style internal links + verifies their target route file
+        // currently resolves. Future commits that remove the target
+        // (or rewrite it past unrecognizability) fail the pin.
+        try {
+          const linkPins = detectInternalLinkPins(cwd);
+          for (const lp of linkPins) {
+            if (!lp.expected) continue; // skip when no anchor line could be derived
+            const claim = {
+              template: "config-invariant" as const,
+              configPath: lp.configPath,
+              expected: lp.expected,
+              label: lp.label,
+              raw: lp.suggestedPin,
+            };
+            try {
+              const gen = generateTest(claim, { prId });
+              const target = join(pinnedDir, gen.filename);
+              try {
+                assertInsideDir(target, pinnedDir);
+                writeFileSync(target, gen.content, { flag: "wx" });
+                registry = addEntry(registry, {
+                  claimId: gen.claimId,
+                  prId,
+                  claim,
+                  filename: gen.filename,
+                });
+                baselineAddedSummaries.push(`link ${lp.targetRoute} → ${lp.configPath}`);
+              } catch (e) {
+                if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+                  out(`  ! link pin write failed: ${(e as Error).message}`);
+                }
+              }
+            } catch { /* */ }
+          }
+        } catch (e) {
+          out(`  ! internal-link detection failed: ${(e as Error).message}`);
+        }
+
+        // Public exposure checks — P0 #6. Surface as warnings, NOT pins
+        // (these are state checks, not behavioral contracts).
+        try {
+          const exposures = detectPublicExposure(cwd);
+          if (exposures.length > 0) {
+            out("");
+            out(`  ⚠ ${exposures.length} public-exposure finding${exposures.length === 1 ? "" : "s"}:`);
+            for (const ex of exposures.slice(0, 5)) {
+              out(`      [${ex.severity}] ${ex.kind}: ${ex.path}`);
+            }
+            if (exposures.length > 5) {
+              out(`      ... and ${exposures.length - 5} more (run \`pinned scan-diff --json\` for full list)`);
+            }
+          }
+        } catch (e) {
+          out(`  ! public-exposure detection failed: ${(e as Error).message}`);
+        }
+
+        // Client-fetch static pins — captures CURRENT auth-headers /
+        // error-handling signatures in client API wrappers (apps/app/,
+        // src/lib/, src/api/, *Client.ts, *Fetcher.ts). Future edits
+        // that strip the pattern fail the static check. Per P0 #2
+        // of [[strategic-pivot-guard-integrity]]. Distinct from the
+        // diff-aware detector which only fires when a fetch CORRECTNESS
+        // PATTERN is being ADDED — this picks up existing ones too.
+        try {
+          const clientPins = detectClientFetchPins(cwd);
+          for (const cf of clientPins) {
+            const claim = {
+              template: "auth-required" as const,
+              route: cf.route,
+              raw: cf.suggestedPin,
+              staticVerify: { filePath: cf.filePath, signature: cf.signature },
+            };
+            try {
+              const gen = generateTest(claim, { prId });
+              const target = join(pinnedDir, gen.filename);
+              try {
+                assertInsideDir(target, pinnedDir);
+                writeFileSync(target, gen.content, { flag: "wx" });
+                registry = addEntry(registry, {
+                  claimId: gen.claimId,
+                  prId,
+                  claim,
+                  filename: gen.filename,
+                });
+                baselineAddedSummaries.push(
+                  cf.source === "auth-headers"
+                    ? `Client API in \`${cf.filePath}\` keeps its Authorization header (catches AI stripping the auth header from the fetch call)`
+                    : cf.source === "error-handling"
+                      ? `Client API in \`${cf.filePath}\` keeps error handling (catches AI dropping the \`if (!res.ok)\` check or try/catch wrapper)`
+                      : `Client API in \`${cf.filePath}\` keeps its \`${cf.source}\` protection`
+                );
+              } catch (e) {
+                if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+                  out(`  ! client-fetch pin write failed: ${(e as Error).message}`);
+                }
+              }
+            } catch (e) {
+              out(`  ! client-fetch pin generate failed: ${(e as Error).message}`);
+            }
+          }
+        } catch (e) {
+          out(`  ! client-fetch detection failed: ${(e as Error).message}`);
+        }
+
         // Package-exports-exist pins — emitted when package.json
         // resolves to a buildable entry file with detectable named
         // exports. Bypasses parseClaims (no natural-English form).
@@ -1455,6 +1728,7 @@ program
               template: "lockfile-integrity" as const,
               lockfilePath: lock.lockfilePath,
               expectedSha256: lock.expectedSha256,
+              packageJsonSha256: lock.packageJsonSha256,
               raw: `lockfile-integrity ${lock.lockfilePath} sha256 ${lock.expectedSha256.slice(0, 12)}`,
             };
             const gen = generateTest(claim, { prId });
@@ -1508,6 +1782,60 @@ program
             }
           }
         }
+        // ── HISTORICAL PASS: run diff-aware detectors against past
+        // fix commits and add high-quality "fix-derived" pins. Each
+        // pin is filtered: only kept if its signature is STILL present
+        // at HEAD. Per the launch direction (2026-05-25), the Tier-3
+        // risky templates (module-export at new files, import-path on
+        // bare-spec imports, url-literal current-state scan) are gated
+        // by their own diff-mode FP guards (file-existed-at-parent,
+        // relative-imports-only). This pass is fast (3-10s) and
+        // deterministic — LLM enrichment is a separate opt-in command.
+        try {
+          const { collectHistoricalPinsForInit } = await import("./backtest.js");
+          const historicalClaims = await collectHistoricalPinsForInit({
+            repoPath: cwd,
+            maxFixCommits: 30,
+          });
+          const historicalRegistry = registry;
+          let historicalAdded = 0;
+          // Dedup against pins already in the registry (current-state pass
+          // may have produced overlapping pins for the same surface).
+          const existingKeys = new Set(historicalRegistry.claims.map((c) =>
+            `${c.claim.template}:${claimSlug(c.claim)}`
+          ));
+          for (const claim of historicalClaims) {
+            const k = `${claim.template}:${claimSlug(claim)}`;
+            if (existingKeys.has(k)) continue;
+            existingKeys.add(k);
+            const gen = generateTest(claim, { prId });
+            const target = join(pinnedDir, gen.filename);
+            try {
+              assertInsideDir(target, pinnedDir);
+              writeFileSync(target, gen.content, { flag: "wx" });
+              registry = addEntry(registry, {
+                claimId: gen.claimId,
+                prId,
+                claim,
+                filename: gen.filename,
+              });
+              baselineAutoAdded += 1;
+              historicalAdded += 1;
+              baselineAddedSummaries.push(summarizeClaimForBanner(claim));
+            } catch (e) {
+              if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+                out(`  ! historical pin failed for ${gen.filename}: ${(e as Error).message}`);
+              }
+            }
+          }
+          if (historicalAdded > 0) {
+            out(`  + ${historicalAdded} pin${historicalAdded === 1 ? "" : "s"} from past fix commits`);
+          }
+        } catch (e) {
+          // Historical pass failure should never block init.
+          out(`  ! historical pass failed: ${(e as Error).message}`);
+        }
+
         if (baselineAutoAdded > 0) {
           writeRegistry(pinnedDir, registry);
           stampPinAddedToCache(
@@ -1516,6 +1844,15 @@ program
             countActivePins(registry),
             baselineAddedSummaries
           );
+          // Emit SAVED event so the statusline shows
+          // "Pinned · SAVED · N guards created" for 90 sec.
+          try {
+            const { recordGuardsSaved } = await import("./statusline.js");
+            recordGuardsSaved(pinnedDir, {
+              count: baselineAutoAdded,
+              summaries: baselineAddedSummaries,
+            });
+          } catch { /* best-effort */ }
         }
         baselineSuggested =
           ambiguous.length + Math.max(0, safe.length - MAX_BASELINE_AUTO_PINS);
@@ -1558,29 +1895,169 @@ program
     if (setupMode === "auto" && (baselineAutoAdded > 0 || baselineSuggested > 0)) {
       out("");
       if (baselineAutoAdded > 0) {
-        // Name the pins so the user FEELS the value, not just sees +N.
-        // "+ Added 4 pins" is abstract; "+ Added Stripe webhook
-        // idempotency, auth on /api/admin, lockfile integrity + 1 more"
-        // shows what's actually being protected.
-        const namedSummary =
-          baselineAddedSummaries.length > 0
-            ? renderAddedSummaryList(baselineAddedSummaries)
-            : "";
-        out(
-          `★ Pinned is now protecting ${baselineAutoAdded} thing${baselineAutoAdded === 1 ? "" : "s"} in your repo:`
-        );
-        if (namedSummary) {
-          out(namedSummary);
+        // Banner format per [[ux-banner-unification]] + GPT free-mode
+        // launch criteria (2026-05-25): every value-moment event should
+        // read as "◆ Pinned · EVENT" with a list of concrete artifacts
+        // produced. Substance hasn't changed, just punchier framing so
+        // the AHA moment is unambiguous.
+        out("◆ Pinned · BASELINE CREATED");
+        out("");
+        // Split into "Protecting your code" (real user-facing guards)
+        // vs "Pinned setup" (self-protection of our own workflow file +
+        // CLAUDE.md block). Users care about the first list; the
+        // second is just transparency about what we installed.
+        // Heuristic: any summary mentioning "GitHub Action" /
+        // "AI-coder rules in CLAUDE.md" is self-protection. Everything
+        // else is real user-protection.
+        const isPinnedSelfSetup = (s: string): boolean =>
+          /GitHub Action permission|AI-coder rules in CLAUDE\.md/i.test(s);
+        const userGuards = baselineAddedSummaries.filter((s) => !isPinnedSelfSetup(s));
+        const pinnedSetup = baselineAddedSummaries.filter((s) => isPinnedSelfSetup(s));
+        // Dedupe identical summary lines (e.g. a repo with both
+        // package-lock.json AND pnpm-lock.yaml gets the same
+        // "Lockfile changes can't sneak past..." label twice). Keep
+        // the first occurrence's position.
+        const dedupeKeepFirst = (arr: string[]): string[] => {
+          const seen = new Set<string>();
+          const out: string[] = [];
+          for (const s of arr) {
+            if (seen.has(s)) continue;
+            seen.add(s);
+            out.push(s);
+          }
+          return out;
+        };
+        const userGuardsUnique = dedupeKeepFirst(userGuards);
+        if (userGuardsUnique.length > 0) {
+          out(`Protecting your code (${userGuardsUnique.length} guard${userGuardsUnique.length === 1 ? "" : "s"}):`);
+          for (const summary of userGuardsUnique) {
+            out(`  ✓ ${summary}`);
+          }
+        } else {
+          out("Protecting your code: no specific code-protection guards detected on this repo's first scan.");
+          out("(Pinned will add more as you open PRs that pass through the GitHub Action.)");
         }
+        if (pinnedSetup.length > 0) {
+          out("");
+          out(`Pinned setup (${pinnedSetup.length} self-protection guard${pinnedSetup.length === 1 ? "" : "s"} — prevents AI from disabling Pinned itself):`);
+          for (const summary of pinnedSetup) {
+            out(`  ✓ ${summary}`);
+          }
+        }
+        // Write baseline AI lessons for each guard category we touched.
+        // Each appendLesson() call dedupes by guardId, so re-running
+        // init is idempotent. Lessons written: short, specific, tied
+        // to the guard that created them — per GPT criterion #3.
+        try {
+          const { appendLesson } = await import("./aiLessons.js");
+          const baselineLessons: import("./aiLessons.js").LessonInput[] = [];
+          const templatesEmitted = new Set(baselineAddedSummaries.map((s) => s));
+          if (templatesEmitted.size > 0) {
+            // Group lessons by category — one lesson per category
+            // (not per pin) so the file stays scannable. Mirrors
+            // GPT's example output: "Created 3 AI lessons" with one
+            // line each, not "Created 30 AI lessons" with redundant
+            // duplicates.
+            const haveSecret = baselineAddedSummaries.some((s) =>
+              /secret|VITE_\*|NEXT_PUBLIC|REACT_APP/i.test(s)
+            );
+            const haveLockfile = baselineAddedSummaries.some((s) =>
+              /lockfile|dependency lockfile|package-lock|pnpm-lock/i.test(s)
+            );
+            const haveExports = baselineAddedSummaries.some((s) =>
+              /exports|export|package-exports/i.test(s)
+            );
+            const haveCli = baselineAddedSummaries.some((s) =>
+              /CLI|`pinned |--help|exits 0|runs without crashing/i.test(s)
+            );
+            const haveConfig = baselineAddedSummaries.some((s) =>
+              /github action|workflow|claude\.md|ai-coder rules|config-invariant/i.test(s)
+            );
+            if (haveSecret) {
+              baselineLessons.push({
+                guardId: "baseline-secret-not-public",
+                title: "Public env-var prefixes never carry secrets",
+                pastMistake: "AI tools sometimes rename a server-only env var to start with NEXT_PUBLIC_ / VITE_ / REACT_APP_ — that inlines the secret into the client bundle.",
+                rule: "Never use a public-env-prefix (NEXT_PUBLIC_*, VITE_*, REACT_APP_*) for a variable that holds a secret (KEY, TOKEN, PASSWORD, SECRET, etc.).",
+                plainEnglish: "Do not expose server secrets with public env prefixes.",
+                kind: "baseline",
+              });
+            }
+            if (haveLockfile) {
+              baselineLessons.push({
+                guardId: "baseline-lockfile-integrity",
+                title: "Lockfile changes require package.json changes",
+                pastMistake: "AI tools sometimes regenerate the lockfile without bumping package.json — transitive deps silently shift, build becomes mystery-fragile.",
+                rule: "Do not regenerate the lockfile without a matching package.json change. If a dep update is intended, bump package.json first.",
+                plainEnglish: "Do not regenerate the lockfile without a real dep change.",
+                kind: "baseline",
+              });
+            }
+            if (haveExports) {
+              baselineLessons.push({
+                guardId: "baseline-package-exports",
+                title: "Public package exports stay exported",
+                pastMistake: "AI tools sometimes remove or rename a named export in a public entry file; consumers fail at runtime.",
+                rule: "Do not remove exported entry-point symbols without confirming no public consumer relies on them.",
+                plainEnglish: "Do not remove exported entry-point symbols.",
+                kind: "baseline",
+              });
+            }
+            if (haveCli) {
+              baselineLessons.push({
+                guardId: "baseline-cli-exits-zero",
+                title: "CLI binaries keep working",
+                pastMistake: "AI tools sometimes delete a CLI command's `bin` entry or break the `--help` invocation.",
+                rule: "Do not break the CLI binary's basic invocation (--help, --version) without checking the bin entry in package.json still resolves.",
+                plainEnglish: "Do not break the CLI binary's --help command.",
+                kind: "baseline",
+              });
+            }
+            if (haveConfig) {
+              baselineLessons.push({
+                guardId: "baseline-guard-integrity",
+                title: "Pinned tests and workflow are protected",
+                pastMistake: "AI tools sometimes try to make CI green by deleting / skipping / weakening pinned tests, or by disabling the Pinned GitHub Action.",
+                rule: "Do not delete tests/pinned/* files, do not add .skip() to pinned tests, do not weaken assertions in pinned tests, do not modify .github/workflows/pinned.yml. If a pinned test is genuinely outdated, retire it: `pinned retire <claim-id>`.",
+                plainEnglish: "Do not weaken pinned tests to make CI pass.",
+                kind: "baseline",
+              });
+            }
+          }
+          let lessonsAdded = 0;
+          const lessonsAddedTitles: string[] = [];
+          for (const lesson of baselineLessons) {
+            const result = appendLesson(lesson, { repoRoot: cwd });
+            if (result.added) {
+              lessonsAdded += 1;
+              lessonsAddedTitles.push(lesson.plainEnglish);
+            }
+          }
+          if (lessonsAdded > 0) {
+            out("");
+            out(`Created ${lessonsAdded} AI lesson${lessonsAdded === 1 ? "" : "s"}:`);
+            for (const t of lessonsAddedTitles) {
+              out(`✓ ${t}`);
+            }
+          }
+        } catch (e) {
+          out(`  ! AI lessons emission failed: ${(e as Error).message}`);
+        }
+
         out("");
         out(
-          `   If AI changes break any of these, your tests will fail and Pinned will tell you.`
+          `   How this protects you:\n` +
+          `   • Guards: if a future commit breaks any of them, your tests fail in CI and Pinned tells you.\n` +
+          `   • AI lessons: read by Claude / Cursor / Devin before they edit your repo, so they avoid repeating these mistakes.`
         );
+        out("");
+        out("Next:");
+        out("  npx pinned audit --learned   # check similar code paths for the same issues");
       }
       if (baselineSuggested > 0) {
         out("");
         out(
-          `? ${baselineSuggested} more candidate${baselineSuggested === 1 ? "" : "s"} need review. Run \`pinned protect\` to add the ones that apply.`
+          `? ${baselineSuggested} more pattern${baselineSuggested === 1 ? "" : "s"} worth a look — Pinned found them but isn't sure they're worth pinning. Run \`pinned protect\` to review.`
         );
       }
     }
@@ -1589,6 +2066,9 @@ program
     out("  npx pinnedai try            # local demo");
     out("  pinned status               # see pins + risks + safety + breaks caught");
     out("  pinned auto-protect         # scan working tree, auto-add safe pins");
+    out("");
+    out("Optional add-ons:");
+    out("  pinned install-claude       # add /pinned-status, /pinned-list, /pinned-review, /pinned-done slash commands in Claude Code");
     if (wantPreCommit && wantPostCommit) {
       out("");
       out("Auto-protection is fully wired:");
@@ -1672,9 +2152,17 @@ async function offerAgentRulesInstall(
   // leaving the other AI context unaware. Marker-bounded blocks
   // mean removing the rule from any file is the same uninstall flow.
   const detected = detectAllAgentRulesTargets(cwd);
-  // Fallback: if no AI rule files exist, create CLAUDE.md (the most
-  // common convention and the one our docs point to).
-  const targets = detected.length > 0 ? detected : ["CLAUDE.md"];
+  // Fallback when no AI rule files exist yet: create BOTH `CLAUDE.md`
+  // (the canonical convention our docs point to) and
+  // `.github/copilot-instructions.md` (the 40–60% VS Code + Copilot Free
+  // surface). Writing only CLAUDE.md leaves Copilot Chat unable to see
+  // Pinned's rules — that's the dominant AI-coder surface on stock VS
+  // Code so we always seed it. If the user has Copilot disabled, an
+  // unread instructions file is harmless.
+  const targets =
+    detected.length > 0
+      ? detected
+      : ["CLAUDE.md", ".github/copilot-instructions.md"];
 
   for (const target of targets) {
     await installRulesToOneFile(cwd, target, {
@@ -2075,39 +2563,84 @@ async function promptSetupMode(): Promise<"auto" | "manual"> {
 // ("Pinned will catch if AI changes break any of these…"), so each
 // line is just the SUBJECT — short, scannable, value-directed.
 function summarizeClaimForBanner(claim: Claim): string {
+  // Each label describes WHAT THE GUARD CATCHES in plain English —
+  // a developer should understand the value without reading docs or
+  // knowing what a "template" is. Matches the style of the
+  // already-good "no `VITE_*` env var leaks a secret..." label.
   switch (claim.template) {
     case "rate-limit":
-      return `${claim.route} rate limit: ${claim.rate}/${claim.window}`;
-    case "auth-required":
-      return `${claim.route} auth check`;
+      return `\`${claim.route}\` stays rate-limited to ${claim.rate}/${claim.window} (AI can't silently remove the limit)`;
+    case "auth-required": {
+      // Synthetic-route rewrites: when the detector synthesizes a
+      // "route" string like `client-err:src/lib/foo`, `client:src/api/bar`,
+      // `webhook:apps/api/...`, or the literal `* (middleware)`, the
+      // default `\`${route}\` requires login` label leaks the internal
+      // synth syntax. Translate to plain English using the file path.
+      const route = claim.route;
+      const sv = (claim as { staticVerify?: { filePath: string } }).staticVerify;
+      const filePath = sv?.filePath ?? "";
+      if (route.startsWith("client-err:")) {
+        const path = filePath || route.replace(/^client-err:/, "");
+        return `Client API in \`${path}\` keeps error handling (AI can't drop the \`if (!res.ok)\` check or try/catch)`;
+      }
+      if (route.startsWith("client:")) {
+        const path = filePath || route.replace(/^client:/, "");
+        return `Client API in \`${path}\` keeps its Authorization header (AI can't strip the auth header)`;
+      }
+      if (route.startsWith("webhook:")) {
+        const path = filePath || route.replace(/^webhook:/, "");
+        return `Webhook handler in \`${path}\` keeps its verification (AI can't remove the signature/auth check)`;
+      }
+      if (route === "* (middleware)") {
+        const path = filePath || "middleware.ts";
+        return `Middleware in \`${path}\` keeps its auth check (AI can't remove auth from the middleware chain)`;
+      }
+      return `\`${route}\` requires login (AI can't strip the auth check)`;
+    }
     case "permission-required":
-      return `${claim.route} ${claim.role}-only access`;
+      return `\`${claim.route}\` requires ${claim.role} role (AI can't weaken the permission check)`;
     case "tier-cap":
-      return `${claim.tier}-tier limit: ${claim.cap} ${claim.resource} on ${claim.route}`;
+      return `\`${claim.tier}\` users stay capped at ${claim.cap} ${claim.resource} on \`${claim.route}\` (AI can't silently remove the billing/quota gate)`;
     case "idempotent":
-      return `${capitalize(humanProviderFromRoute(claim.route))} webhook duplicate-event handling`;
+      return `${capitalize(humanProviderFromRoute(claim.route))} webhook ignores duplicate events (AI can't break idempotency and cause double-charges)`;
     case "returns-status":
-      return `${claim.method} ${claim.route} input validation`;
+      return `${claim.method} \`${claim.route}\` rejects bad input with ${claim.status} (AI can't remove the input validation)`;
     case "cli-output-contains":
-      return `\`${claim.route}\` output content`;
+      return `\`${claim.route}\` keeps printing \`${claim.text}\` (AI can't break the expected output)`;
     case "cli-exits-zero":
-      return `\`${claim.route}\` runs without crashing`;
+      return `\`${claim.route}\` runs without crashing (AI can't break the CLI command)`;
     case "cli-creates-file":
-      return `\`${claim.route}\` produces ${claim.filePath}`;
+      return `\`${claim.route}\` keeps producing \`${claim.filePath}\` (AI can't break the side-effect)`;
     case "cli-json-shape":
-      return `\`${claim.route}\` JSON output shape`;
+      return `\`${claim.route}\` JSON output keeps its required keys (AI can't break the schema downstream consumers depend on)`;
     case "cli-flag-supported":
-      return `\`${claim.flag}\` flag on \`${claim.route}\``;
+      return `\`${claim.route}\` keeps supporting the \`${claim.flag}\` flag (AI can't accidentally remove it)`;
     case "library-returns":
-      return `${claim.functionName}() return value`;
+      return `\`${claim.functionName}()\` in \`${claim.modulePath}\` keeps returning the expected value (AI can't change the function's contract)`;
     case "lockfile-integrity":
-      return `dependency lockfile`;
+      return `Lockfile changes can't sneak past package.json bumps (catches AI regenerating the lockfile and silently shifting transitive deps)`;
     case "config-invariant":
       return humanizeConfigLabel(claim.label, claim.configPath);
     case "package-exports-exist":
-      return `\`${claim.modulePath}\` keeps exporting ${claim.exports.length} symbol${claim.exports.length === 1 ? "" : "s"}`;
+      return `\`${claim.modulePath}\` keeps exporting its public functions (catches AI accidentally renaming or removing an export)`;
     case "secret-not-public":
       return `no \`${claim.publicPrefix}*\` env var leaks a secret to the client bundle`;
+    case "url-literal-preserved":
+      return `URL \`${claim.urlLiteral}\` stays in \`${claim.filePath}\` (catches AI changing the URL and breaking the call site)`;
+    case "tsc-clean":
+      return `\`tsc --noEmit\` stays clean`;
+    case "module-export-stable":
+      return `\`${claim.modulePath}\` keeps exporting \`${claim.exportName}\``;
+    case "react-route-registered":
+      return `Route \`${claim.routePath}\` stays registered in \`${claim.routerFilePath}\` (catches AI dropping the route and making the page unreachable)`;
+    case "webhook-handler-exists":
+      return `${claim.provider} webhook handler at \`${claim.filePath}\``;
+    case "import-path-resolves":
+      return `import \`${claim.importPath}\` keeps resolving`;
+    case "changed-literal-preserved":
+      return `Fix preserved: \`${claim.newValue}\` stays in \`${claim.filePath}\` (catches AI reverting the ${claim.shape} fix from \`${claim.oldValue}\`)`;
+    case "form-submit-error-handling":
+      return `Form in \`${claim.filePath}\` keeps its submit-handler error handling (AI can't strip the try/catch and cause unhandled promise rejections)`;
   }
 }
 
@@ -2119,11 +2652,11 @@ function summarizeClaimForBanner(claim: Claim): string {
 function humanizeConfigLabel(label: string, configPath: string): string {
   switch (label) {
     case "OIDC permission":
-      return `GitHub Action permission for Pinned`;
+      return `GitHub Action permission for Pinned (AI can't disable Pinned's CI guard by editing the workflow)`;
     case "auto-commit permission":
-      return `GitHub Action permission to add new pins`;
+      return `GitHub Action permission to add new pins (AI can't strip Pinned's ability to grow on each PR)`;
     case "Pinned guardrail block":
-      return `AI-coder rules in CLAUDE.md`;
+      return `AI-coder rules in CLAUDE.md (AI can't silently delete the rules that tell it to respect pins + read .pinned/ai-lessons.md)`;
     default:
       return `"${label}" in ${configPath}`;
   }
@@ -2144,21 +2677,6 @@ function humanProviderFromRoute(route: string): string {
 // Render a list of added-pin summaries as bullets. Caps the visible
 // count to keep the banner short — "+ stripe webhook idempotency
 //                                   + auth required on /api/admin
-//                                   + lockfile integrity + 1 more"
-// reads better than dumping all 10 names. The full list is one
-// `pinned list` away.
-function renderAddedSummaryList(summaries: string[]): string {
-  if (summaries.length === 0) return "";
-  const MAX_VISIBLE = 5;
-  const visible = summaries.slice(0, MAX_VISIBLE);
-  const rest = summaries.length - visible.length;
-  const lines = visible.map((s) => `   + ${s}`);
-  if (rest > 0) {
-    lines.push(`   + …and ${rest} more`);
-  }
-  return lines.join("\n");
-}
-
 function installCommandStr(
   pm: "npm" | "pnpm" | "yarn" | "bun",
   cwd?: string
@@ -2656,7 +3174,7 @@ program
   )
   .option("--limit <n>", "Show at most N entries (default: 20)", "20")
   .option("--quiet", "Suppress the pinned banner header.")
-  .action((opts: { dir: string; limit: string }) => {
+  .action(async (opts: { dir: string; limit: string }) => {
     printBanner();
     assertInsideDir(opts.dir, process.cwd());
     const last = readLastStatus(opts.dir);
@@ -2681,23 +3199,80 @@ program
     // retired or the registry is missing.
     const reg = existsSync(opts.dir) ? readRegistry(opts.dir) : { version: 1 as const, claims: [] };
     const regById = new Map(reg.claims.map((e) => [e.claimId, e]));
+    // Sort by severity (highest first) then by date (newest first)
+    // when layman fields are present. Mixed cache (some with, some
+    // without) sorts by date alone — falls through to original order.
+    const { SEVERITY_RANK } = await import("./catchImpact.js");
+    const ranked = [...history];
+    if (ranked.some((c) => c.severity)) {
+      ranked.sort((a, b) => {
+        const ra = SEVERITY_RANK[a.severity ?? "info"];
+        const rb = SEVERITY_RANK[b.severity ?? "info"];
+        if (ra !== rb) return rb - ra;
+        return (b.caughtAt ?? "").localeCompare(a.caughtAt ?? "");
+      });
+    }
+
     let i = 0;
-    for (const c of history.slice(0, limit)) {
+    for (const c of ranked.slice(0, limit)) {
       i += 1;
       const dateOnly = c.caughtAt.replace(/T.*$/, "");
       const entry = regById.get(c.claimId);
-      const title = entry
-        ? describeClaimForUser(entry.claim).title
-        : c.claimText ?? c.claimId;
-      out(`${String(i).padStart(2)}. 🛟 ${title}`);
-      out(`      Caught: ${dateOnly}`);
-      if (entry) out(`      Test:   tests/pinned/${entry.filename}`);
-      out("");
+      // Layman path: render headline + impact + severity badge when
+      // the cache carries them (records from `pinned backtest
+      // --record-catches`). Falls back to the technical title for
+      // older cache entries.
+      if (c.severity && c.laymanHeadline) {
+        const badge =
+          c.severity === "critical" ? "🔴 CRITICAL" :
+          c.severity === "high" ? "🟠 HIGH" :
+          c.severity === "medium" ? "🟡 MEDIUM" :
+          c.severity === "low" ? "🔵 LOW" :
+          "⚪ INFO";
+        out(`${String(i).padStart(2)}. ${badge} — ${c.laymanHeadline}`);
+        if (c.userImpact) {
+          // Wrap impact text to ~76 chars for terminal readability.
+          const wrapped = wrapText(c.userImpact, 76, "      ");
+          for (const line of wrapped) out(line);
+        }
+        out(`      Caught: ${dateOnly}${c.originPr ? ` · from ${c.originPr}` : ""}`);
+        if (entry) out(`      Test:   tests/pinned/${entry.filename}`);
+        else if (c.claimId) out(`      Test:   tests/pinned/${c.claimId}.test.ts`);
+        out("");
+      } else {
+        // Legacy / un-translated entry
+        const title = entry
+          ? describeClaimForUser(entry.claim).title
+          : c.claimText ?? c.claimId;
+        out(`${String(i).padStart(2)}. 🛟 ${title}`);
+        out(`      Caught: ${dateOnly}`);
+        if (entry) out(`      Test:   tests/pinned/${entry.filename}`);
+        out("");
+      }
     }
-    if (history.length > limit) {
-      out(`... and ${history.length - limit} more (use --limit ${history.length})`);
+    if (ranked.length > limit) {
+      out(`... and ${ranked.length - limit} more (use --limit ${ranked.length})`);
     }
   });
+
+// Simple word-wrap for terminal output. Keeps existing words intact;
+// breaks only on whitespace. Lines are indented by `indent` (caller-
+// supplied; usually 6 spaces so impact text aligns under the headline).
+function wrapText(text: string, width: number, indent: string): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const w of words) {
+    if ((current + " " + w).trimStart().length > width - indent.length) {
+      if (current) lines.push(indent + current.trim());
+      current = w;
+    } else {
+      current = current + " " + w;
+    }
+  }
+  if (current.trim()) lines.push(indent + current.trim());
+  return lines;
+}
 
 // ---------- scan-diff ----------
 // The "No proof found" detector. Looks at the changed files in a PR,
@@ -3001,25 +3576,163 @@ program
   .requiredOption("--repo <path>", "Absolute path to the target git repo.")
   .option("--from <commit>", "Start commit (inclusive). Default: full history.")
   .option("--to <commit>", "End commit. Default: HEAD.", "HEAD")
-  .option("--mode <product|extended>", "product = PR/commit claims only (matches shipping product). extended = + diff-derived inference.", "product")
-  .option("--max-replay <n>", "Max forward-commits to replay per pin.", "50")
+  .option("--mode <product|extended|bug-fix>", "product = PR/commit claims only. extended = + diff-derived inference. bug-fix = mines fix commits, replays pins against parent (the 'real catch' benchmark).", "product")
+  .option("--max-replay <n>", "Max forward-commits to replay per pin (forward modes only).", "50")
+  .option("--max-fixes <n>", "Max fix-commits to evaluate in bug-fix mode (newest first).", "30")
   .option("--vitest-timeout <ms>", "Per-commit vitest timeout (ms).", "30000")
   .option("--json", "Emit the full backtest report as JSON.")
   .option("--quiet", "Suppress the pinned banner header.")
+  .option(
+    "--record-catches",
+    "(bug-fix mode) Write real-catches into the target repo's tests/pinned/.last-status.json so its statusline reflects 'caught N catches today'. Off by default — the benchmark is read-only on the target unless this is set."
+  )
   .action(async (opts: {
     repo: string;
     from?: string;
     to: string;
     mode: string;
     maxReplay: string;
+    maxFixes: string;
     vitestTimeout: string;
     json?: boolean;
     quiet?: boolean;
+    recordCatches?: boolean;
   }) => {
     if (!opts.quiet) printBanner();
-    if (opts.mode !== "product" && opts.mode !== "extended") {
-      err(`✗ Invalid --mode '${opts.mode}'. Use: product | extended\n`);
+    if (opts.mode !== "product" && opts.mode !== "extended" && opts.mode !== "bug-fix") {
+      err(`✗ Invalid --mode '${opts.mode}'. Use: product | extended | bug-fix\n`);
       process.exit(1);
+    }
+    if (opts.mode === "bug-fix") {
+      // Surface LLM mode at start so users see whether the
+      // benchmark is running regex-only or with LLM-as-proposer.
+      // Per [[three-mode-llm-architecture]] privacy invariant: print
+      // mode on every invocation, no silent network calls.
+      const { activeByokProvider } = await import("./llmDirect.js");
+      const byok = activeByokProvider();
+      if (byok && (
+        (byok === "anthropic" && process.env.PINNEDAI_ANTHROPIC_KEY) ||
+        (byok === "openai" && process.env.PINNEDAI_OPENAI_KEY)
+      )) {
+        if (!opts.quiet) {
+          out(`pinned: LLM proposer enabled via BYOK (${byok}) — context sent per commit: commit msg + diff hunks + file paths (no secrets, no whole codebase).`);
+        }
+      } else if (byok) {
+        if (!opts.quiet) {
+          out(`pinned: PINNEDAI_BYOK=${byok} set but PINNEDAI_${byok.toUpperCase()}_KEY missing — LLM proposer DISABLED, falling back to regex-only.`);
+        }
+      } else if (!opts.quiet) {
+        out(`pinned: regex-only mode (set PINNEDAI_BYOK=anthropic + PINNEDAI_ANTHROPIC_KEY to enable LLM proposer).`);
+      }
+      const { runBugFixBenchmark } = await import("./backtest.js");
+      const report = await runBugFixBenchmark({
+        repoPath: resolve(opts.repo),
+        fromCommit: opts.from,
+        toCommit: opts.to,
+        maxFixCommits: parseInt(opts.maxFixes, 10),
+        vitestTimeoutMs: parseInt(opts.vitestTimeout, 10),
+      });
+      if (opts.json) {
+        out(JSON.stringify(report, null, 2));
+        return;
+      }
+      out("");
+      out(`◆ pinned backtest (bug-fix mode) — ${report.repo}`);
+      out(`  commits walked:     ${report.commitsScanned}`);
+      out(`  fix-shaped matched: ${report.fixCommitsMatched}`);
+      out(`  fix-commits evaluated: ${report.fixCommitsEvaluated}`);
+      out(`  pins generated:     ${report.pinsGenerated}`);
+      out(`  by template:`);
+      for (const [t, n] of Object.entries(report.pinsByTemplate)) {
+        out(`    ${t.padEnd(22)} ${n}`);
+      }
+      out(`  not-testable (HTTP, no preview): ${report.notTestableHttp}`);
+      out(`  no-signal (passes at both parent & fix): ${report.noSignal}`);
+      out(`  broken-at-fix (failed positive control):  ${report.brokenAtFix}`);
+      out(`  no-parent (initial commits):              ${report.noParent}`);
+      out("");
+      out(`  ★ REAL CATCHES (fail-at-parent, pass-at-fix): ${report.realCatches}`);
+      if (report.realCatches > 0) {
+        out(`  by template:`);
+        for (const [t, n] of Object.entries(report.realCatchesByTemplate)) {
+          out(`    ${t.padEnd(22)} ${n}`);
+        }
+        out("");
+        out("  Real catches:");
+        for (const fx of report.fixes) {
+          const catches = fx.pins.filter((p) => p.classification === "real-catch");
+          if (catches.length === 0) continue;
+          out(`    ${fx.fixCommit.slice(0, 8)}  ${fx.subject}`);
+          for (const p of catches) {
+            out(`      → ${p.claim.template}  (${p.filename})`);
+            // Sibling suggestions — surfaced for every real-catch
+            // in a high-value category. High-confidence ones are
+            // what a live `pinned guard` flow would auto-pin in
+            // observe mode (per memory:
+            // sibling-discovery-confidence-tiered-no-approval).
+            const siblings = p.siblings ?? [];
+            const high = siblings.filter((s) => s.confidence === "high");
+            const medium = siblings.filter((s) => s.confidence === "medium");
+            if (high.length > 0) {
+              out(`        ◆ Related protection opportunities (high confidence — would auto-pin in observe mode):`);
+              for (const s of high) {
+                const routeDisplay = s.route ? `  →  ${s.route}` : "";
+                out(`            + ${s.filePath}${routeDisplay}`);
+              }
+            }
+            if (medium.length > 0) {
+              out(`        ? Related candidates (medium — review with \`pinned audit --learned\` and pin manually):`);
+              for (const s of medium) {
+                const routeDisplay = s.route ? `  →  ${s.route}` : "";
+                out(`            ? ${s.filePath}${routeDisplay}`);
+              }
+            }
+          }
+        }
+      }
+      out(`  duration:           ${(report.durationMs / 1000).toFixed(1)}s`);
+
+      // Optional: record catches into the target repo's status cache
+      // so its statusline reflects "★ N catches today" per
+      // [[statusline catch decay]]. Read-only by default; opt-in via
+      // --record-catches flag.
+      if (opts.recordCatches) {
+        const { recordBenchmarkCatches } = await import("./statusline.js");
+        const { deriveCatchImpact } = await import("./catchImpact.js");
+        const targetPinnedDir = resolve(opts.repo, "tests/pinned");
+        const catches: import("./statusline.js").BenchmarkCatchInput[] = [];
+        for (const fx of report.fixes) {
+          for (const p of fx.pins) {
+            if (p.classification !== "real-catch") continue;
+            // Compute the layman-friendly severity/headline/impact at
+            // record-time so the cache is rich enough for `pinned
+            // catches`, CATCHES.md, and the chat hook to render
+            // without re-deriving on every read.
+            const impact = deriveCatchImpact(p.claim);
+            catches.push({
+              claimId: p.filename.replace(/\.test\.ts$/, ""),
+              template: p.claim.template,
+              route: "route" in p.claim ? (p.claim as { route: string }).route : undefined,
+              claimText: p.claim.raw,
+              fixSha: fx.fixCommit,
+              severity: impact.severity,
+              laymanHeadline: impact.headline,
+              userImpact: impact.impact,
+            });
+          }
+        }
+        const result = recordBenchmarkCatches(targetPinnedDir, catches);
+        if (result.recorded > 0) {
+          out("");
+          out(`  ↳ Recorded ${result.recorded} catch${result.recorded === 1 ? "" : "es"} into ${relative(process.cwd(), targetPinnedDir)}/.last-status.json`);
+          out(`    (statusline will show "★ ${result.recorded} catches today" for the next 24h)`);
+        } else if (result.skipped > 0) {
+          out("");
+          out(`  ↳ All ${result.skipped} catch${result.skipped === 1 ? "" : "es"} were already recorded — no statusline update.`);
+        }
+      }
+
+      return;
     }
     const { runBacktest } = await import("./backtest.js");
     const report = await runBacktest({
@@ -3729,10 +4442,42 @@ program
       }
     }
 
-    // BYOK opt-in status. Identity / plan is server-side via OIDC; the
-    // local check is only useful for confirming the BYOK env wiring.
+    // BYOK opt-in status. Local check confirms the env wiring is
+    // consistent with the selected provider. Covers all 4 providers.
     const byok = activeByokProvider();
-    if (byok) {
+    if (byok === "claude-code") {
+      // No env key needed — just check the binary is on PATH.
+      try {
+        execFileSync("command", ["-v", "claude"], { stdio: "ignore" });
+        checks.push({
+          name: `BYOK (claude-code)`,
+          result: "ok",
+          detail: `\`claude\` CLI found on PATH — uses your Claude Pro/Max subscription`,
+        });
+      } catch {
+        checks.push({
+          name: `BYOK (claude-code)`,
+          result: "fail",
+          detail: `PINNEDAI_BYOK=claude-code but \`claude\` CLI is not on PATH. Install Claude Code from claude.ai/download or pick a different provider.`,
+        });
+      }
+    } else if (byok === "github-models") {
+      const tok = process.env.PINNEDAI_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+      if (tok) {
+        const which = process.env.PINNEDAI_GITHUB_TOKEN ? "PINNEDAI_GITHUB_TOKEN" : "GITHUB_TOKEN";
+        checks.push({
+          name: `BYOK (github-models)`,
+          result: "ok",
+          detail: `${which} present — uses Microsoft's free GitHub Models tier`,
+        });
+      } else {
+        checks.push({
+          name: `BYOK (github-models)`,
+          result: "fail",
+          detail: `PINNEDAI_BYOK=github-models but neither PINNEDAI_GITHUB_TOKEN nor GITHUB_TOKEN is set. Use \`gh auth token\` to get one.`,
+        });
+      }
+    } else if (byok) {
       const envName =
         byok === "anthropic"
           ? "PINNEDAI_ANTHROPIC_KEY"
@@ -3741,7 +4486,7 @@ program
         checks.push({
           name: `BYOK (${byok})`,
           result: "ok",
-          detail: `${envName} present — BYOK active when org is on a paid plan`,
+          detail: `${envName} present — LLM proposer will run via your ${byok} key`,
         });
       } else {
         checks.push({
@@ -3754,7 +4499,7 @@ program
       checks.push({
         name: "BYOK opt-in",
         result: "fail",
-        detail: `PINNEDAI_BYOK='${process.env.PINNEDAI_BYOK}' is not recognized. Expected 'anthropic' or 'openai'.`,
+        detail: `PINNEDAI_BYOK='${process.env.PINNEDAI_BYOK}' is not recognized. Expected: anthropic | openai | claude-code | github-models.`,
       });
     }
 
@@ -4464,15 +5209,32 @@ program
       }
 
       if (opts.summarize && findings.length > 0) {
-        out("");
-        out("(--summarize requested; calling hosted LLM…)");
-        const summary = await llmSafetySummarize(findings);
-        if (summary.ok) {
+        // Gate on BYOK actually being active. The hosted Worker (which
+        // llmSafetySummarize routes through) is undeployed; without
+        // BYOK the call fails opaquely. Be honest about it.
+        const { activeByokProvider } = await import("./llmDirect.js");
+        const prov = activeByokProvider();
+        if (!prov) {
           out("");
-          out("Summary:");
-          out(summary.markdown);
+          err(
+            "(--summarize needs a BYOK LLM. Set one of:\n" +
+              "    PINNEDAI_BYOK=claude-code      (uses your local `claude` CLI subscription, $0)\n" +
+              "    PINNEDAI_BYOK=github-models    (free tier — needs PINNEDAI_GITHUB_TOKEN or GITHUB_TOKEN)\n" +
+              "    PINNEDAI_BYOK=anthropic        (needs PINNEDAI_ANTHROPIC_KEY)\n" +
+              "    PINNEDAI_BYOK=openai           (needs PINNEDAI_OPENAI_KEY)\n" +
+              "  Hosted summarization isn't deployed yet — see roadmap.)\n"
+          );
         } else {
-          err(`(summarize unavailable: ${summary.reason})\n`);
+          out("");
+          out(`(--summarize requested; calling LLM via BYOK provider: ${prov}…)`);
+          const summary = await llmSafetySummarize(findings);
+          if (summary.ok) {
+            out("");
+            out("Summary:");
+            out(summary.markdown);
+          } else {
+            err(`(summarize unavailable: ${summary.reason})\n`);
+          }
         }
       }
 
@@ -4743,7 +5505,7 @@ program
     out("eslint-disable. If the claim is genuinely no longer applicable, ask");
     out("the user before running `pinned retire`.");
     out("");
-    out("After fixing, re-run: pnpm pinned:test");
+    out("After fixing, re-run: npx pinnedai test");
     out("");
     out("═══════════════════════════════════════════");
   });
@@ -5269,12 +6031,974 @@ program
     out(
       `~ ${relative(process.cwd(), join(opts.dir, ".last-status.json"))} (status cache updated)`
     );
+
+    // Emit COVERED event when the suite passed — surfaces in the
+    // statusline as "N guards passed" for ~60s.
+    if (isGreen && totalPins > 0) {
+      try {
+        const { recordCoveredRun } = await import("./statusline.js");
+        recordCoveredRun(opts.dir, { passedCount: totalPins - skippedCount });
+      } catch { /* */ }
+    }
+
     if (caughtNow) {
       out(
         `🛟 Pinned caught ${newFailures.length} regression${newFailures.length === 1 ? "" : "s"} — ${newFailures.slice(0, 3).join(", ")}`
       );
     }
     process.exit(result.status ?? 1);
+  });
+
+// ---------- check-guard-removal (internal — called by hooks) ----------
+//
+// Inspects the staged diff for attempts to remove or weaken pinned
+// tests. Returns:
+//   exit 0 — nothing concerning in staged diff
+//   exit 2 — at least one pinned test was deleted/modified/weakened
+//            without going through the retire flow
+//
+// Bypass: PINNEDAI_ALLOW_PIN_EDIT=1 (single commit override; no audit).
+//
+// What counts as "legitimate" (does NOT block):
+//   - A new pin file added under tests/pinned/ (additions are always OK)
+//   - A pin file moved from tests/pinned/<id>.test.ts to
+//     tests/pinned/retired/<id>.test.ts in the SAME commit — this is
+//     what `pinned retire` produces and must be allowed
+//
+// What blocks:
+//   - Pin file deleted with no matching retired/ destination
+//   - Pin file modified at all (any content change is suspicious —
+//     the user should retire and regenerate, not edit in place)
+//   - Pin file content weakened — .skip / xit / xdescribe / no-op
+//     expects. Surfaces with a specific message instead of the
+//     generic "modification" one.
+program
+  .command("check-guard-removal", { hidden: true })
+  .description("(internal) Block staged commits that delete/modify/weaken pinned tests.")
+  .option("--dir <path>", "Pinned tests directory.", "tests/pinned")
+  .option("--quiet", "Suppress non-error output.")
+  .action(async (opts: { dir: string; quiet?: boolean }) => {
+    if (process.env.PINNEDAI_ALLOW_PIN_EDIT === "1") {
+      if (!opts.quiet) out("pinned: PINNEDAI_ALLOW_PIN_EDIT=1 set — guard-removal check bypassed for this commit.");
+      process.exit(0);
+    }
+    const cwd = process.cwd();
+    // Confirm we're in a git repo with a staged index. If not (e.g.,
+    // hook invoked outside git context), exit 0 — nothing to check.
+    let diffRaw: string;
+    try {
+      diffRaw = execFileSync(
+        "git",
+        ["diff", "--cached", "--name-status", "--", `${opts.dir}/`],
+        { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+      );
+    } catch {
+      process.exit(0);
+    }
+    // Parse: tab-separated "STATUS\tPATH" (or "STATUS\tOLD\tNEW" for renames)
+    type DiffEntry = { status: string; path: string; oldPath?: string };
+    const entries: DiffEntry[] = [];
+    for (const line of diffRaw.split("\n")) {
+      if (!line.trim()) continue;
+      const parts = line.split("\t");
+      const status = parts[0];
+      if (status?.startsWith("R")) {
+        entries.push({ status: "R", oldPath: parts[1], path: parts[2] });
+      } else if (status === "A" || status === "M" || status === "D") {
+        entries.push({ status, path: parts[1] });
+      }
+    }
+    // Pin file = direct child of tests/pinned/ ending in .test.ts.
+    // Nested files under tests/pinned/retired/* are NOT pin files.
+    const isPinFile = (p: string): boolean => {
+      const prefix = opts.dir.replace(/\/+$/, "") + "/";
+      if (!p.startsWith(prefix)) return false;
+      const rest = p.slice(prefix.length);
+      if (rest.includes("/")) return false; // nested (e.g., retired/)
+      return rest.endsWith(".test.ts");
+    };
+    const isRetiredDest = (p: string): boolean => {
+      const prefix = opts.dir.replace(/\/+$/, "") + "/retired/";
+      return p.startsWith(prefix) && p.endsWith(".test.ts");
+    };
+    // Build sets of retired-destination basenames AND matching audit
+    // file basenames added in this commit. The retire-flow exception
+    // ONLY applies when BOTH landed together — moving a pin to
+    // retired/ without the audit file is an AI bypass tactic (was
+    // allowed pre-2026-05-23 per mutation-test scoreboard finding).
+    const addedRetiredBasenames = new Set<string>();
+    const addedAuditBasenames = new Set<string>();
+    const dirPrefix = opts.dir.replace(/\/+$/, "");
+    for (const e of entries) {
+      if ((e.status === "A" || e.status === "R") && isRetiredDest(e.path)) {
+        const base = e.path.slice(e.path.lastIndexOf("/") + 1);
+        addedRetiredBasenames.add(base);
+      }
+      // Audit file: tests/pinned/retired/<claimId>.audit.json — written
+      // by `pinned retire`. Required companion to the pin-file move.
+      if (
+        (e.status === "A" || e.status === "R") &&
+        e.path.startsWith(`${dirPrefix}/retired/`) &&
+        e.path.endsWith(".audit.json")
+      ) {
+        const auditBase = e.path.slice(e.path.lastIndexOf("/") + 1);
+        // Map <claimId>.audit.json → <claimId>.test.ts for membership lookup
+        const claimId = auditBase.replace(/\.audit\.json$/, "");
+        addedAuditBasenames.add(`${claimId}.test.ts`);
+      }
+    }
+    type Violation = { path: string; kind: "deleted" | "modified" | "weakened"; detail?: string };
+    const violations: Violation[] = [];
+    for (const e of entries) {
+      if (!isPinFile(e.path) && !(e.status === "R" && e.oldPath && isPinFile(e.oldPath))) continue;
+      const checkPath = e.status === "R" && e.oldPath ? e.oldPath : e.path;
+      const base = checkPath.slice(checkPath.lastIndexOf("/") + 1);
+      if (e.status === "D") {
+        // Retire-flow exception: BOTH the retired-destination file AND
+        // the matching .audit.json must have landed in this commit.
+        // Without the audit file, a "retire" move is just a hidden
+        // deletion. See [[strategic-pivot-guard-integrity]] retire-flow
+        // bypass finding (mutation test #21).
+        if (addedRetiredBasenames.has(base) && addedAuditBasenames.has(base)) continue;
+        violations.push({
+          path: checkPath,
+          kind: "deleted",
+          detail: addedRetiredBasenames.has(base)
+            ? "moved to retired/ but no matching .audit.json — use `pinned retire` instead of manual mv"
+            : undefined,
+        });
+        continue;
+      }
+      if (e.status === "R") {
+        // Rename out of tests/pinned/ root is suspicious unless it's
+        // exactly to tests/pinned/retired/<same-name> AND the matching
+        // .audit.json file was also added in this commit.
+        const newBase = e.path.slice(e.path.lastIndexOf("/") + 1);
+        if (isRetiredDest(e.path) && newBase === base && addedAuditBasenames.has(base)) continue;
+        violations.push({
+          path: checkPath,
+          kind: "deleted",
+          detail: isRetiredDest(e.path) && newBase === base
+            ? `renamed to ${e.path} but no matching .audit.json — use \`pinned retire\` instead of manual mv`
+            : `renamed to ${e.path}`,
+        });
+        continue;
+      }
+      if (e.status === "M") {
+        // Look at staged content for weakening signals. We diff the
+        // staged version against HEAD; if the added lines introduce
+        // .skip / xit / no-op asserts, flag as weakened.
+        let stagedAdded = "";
+        try {
+          stagedAdded = execFileSync(
+            "git",
+            ["diff", "--cached", "--unified=0", "--no-color", "--", e.path],
+            { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+          );
+        } catch {
+          /* ignore — fall through to generic modified */
+        }
+        const addedLines = stagedAdded
+          .split("\n")
+          .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+          .map((l) => l.slice(1))
+          .join("\n");
+        const weakening = detectWeakeningPattern(addedLines);
+        if (weakening) {
+          violations.push({ path: e.path, kind: "weakened", detail: weakening });
+        } else {
+          violations.push({ path: e.path, kind: "modified" });
+        }
+      }
+    }
+    // Layer-1 Guard Integrity: also check Pinned infrastructure
+    // (workflow file, registry) and the additional weakening patterns
+    // not covered by the legacy detectWeakeningPattern (.toBeTruthy,
+    // .toBeDefined, || true, ?? true, catch fallthrough, commented
+    // assertions, .skipIf(true), .todo). Wired here so the same
+    // pre-commit hook covers the full Layer-1 surface from
+    // [[strategic-pivot-guard-integrity]].
+    try {
+      const { detectGuardIntegrityViolations } = await import("./guardIntegrity.js");
+      const integrityPaths = [".github/workflows/pinned.yml", `${opts.dir}/.registry.json`];
+      let extraDiffRaw = "";
+      try {
+        extraDiffRaw = execFileSync(
+          "git",
+          ["diff", "--cached", "--name-status", "--", ...integrityPaths],
+          { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+        );
+      } catch { /* paths may not exist yet — that's fine */ }
+      const extraFiles: import("./scanDiff.js").ChangedFile[] = [];
+      // Re-use the pin-file entries we already parsed above, adding
+      // their addedLines so guardIntegrity can inspect for .toBeTruthy etc.
+      for (const e of entries) {
+        if (!isPinFile(e.path) && !(e.status === "R" && e.oldPath && isPinFile(e.oldPath))) continue;
+        const target = e.status === "R" && e.oldPath ? e.oldPath : e.path;
+        let added = "";
+        if (e.status === "M") {
+          try {
+            const raw = execFileSync(
+              "git",
+              ["diff", "--cached", "--unified=0", "--no-color", "--", e.path],
+              { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+            );
+            added = raw
+              .split("\n")
+              .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+              .map((l) => l.slice(1))
+              .join("\n");
+          } catch { /* */ }
+        }
+        extraFiles.push({
+          path: target,
+          status: e.status === "A" ? "added" : e.status === "D" ? "deleted" : "modified",
+          addedLines: added || undefined,
+        });
+      }
+      // Add workflow / registry entries from the extra diff query
+      for (const line of extraDiffRaw.split("\n")) {
+        if (!line.trim()) continue;
+        const parts = line.split("\t");
+        const st = parts[0];
+        const p = parts[parts.length - 1];
+        if (!p) continue;
+        let added = "";
+        if (st === "M") {
+          try {
+            const raw = execFileSync(
+              "git",
+              ["diff", "--cached", "--unified=0", "--no-color", "--", p],
+              { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+            );
+            added = raw
+              .split("\n")
+              .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+              .map((l) => l.slice(1))
+              .join("\n");
+          } catch { /* */ }
+        }
+        extraFiles.push({
+          path: p,
+          status: st === "A" ? "added" : st === "D" ? "deleted" : "modified",
+          addedLines: added || undefined,
+        });
+      }
+      const extraViolations = detectGuardIntegrityViolations({ changedFiles: extraFiles });
+
+      // Commit-time mistake detection — fires on the same staged
+      // diff. Picks up SECRET/ENV/HARDCODED/ERR_DROP/AUTH_DROP
+      // patterns per [[commitMistakes.ts]] + [[oss-mining-growth-plan]].
+      // Block-severity findings exit non-zero same as guard-integrity.
+      try {
+        const { detectCommitMistakes } = await import("./commitMistakes.js");
+        // Query the FULL staged diff (not pin-dir-filtered) so we can
+        // catch secrets / hardcoded URLs / error-handling removal /
+        // auth-header removal in ANY staged file, not just tests/pinned/.
+        const fullStagedRaw = execFileSync(
+          "git",
+          ["diff", "--cached", "--name-status"],
+          { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+        );
+        type StageEntry = { path: string; status: "added" | "modified" | "deleted" };
+        const stagedEntries: StageEntry[] = [];
+        for (const line of fullStagedRaw.split("\n")) {
+          if (!line.trim()) continue;
+          const parts = line.split("\t");
+          const st = parts[0];
+          const p = parts[parts.length - 1];
+          if (!p) continue;
+          if (st === "A") stagedEntries.push({ path: p, status: "added" });
+          else if (st === "M" || st?.startsWith("R") || st?.startsWith("C")) stagedEntries.push({ path: p, status: "modified" });
+          else if (st === "D") stagedEntries.push({ path: p, status: "deleted" });
+        }
+        const addedByFile = new Map<string, string[]>();
+        const removedByFile = new Map<string, string[]>();
+        for (const e of stagedEntries) {
+          if (e.status === "deleted") continue;
+          try {
+            const raw = execFileSync(
+              "git",
+              ["diff", "--cached", "--unified=0", "--no-color", "--", e.path],
+              { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+            );
+            const added: string[] = [];
+            const removed: string[] = [];
+            for (const line of raw.split("\n")) {
+              if (line.startsWith("+++") || line.startsWith("---")) continue;
+              if (line.startsWith("+")) added.push(line.slice(1));
+              else if (line.startsWith("-")) removed.push(line.slice(1));
+            }
+            if (added.length > 0) addedByFile.set(e.path, added);
+            if (removed.length > 0) removedByFile.set(e.path, removed);
+          } catch { /* */ }
+        }
+        const mistakeFiles = stagedEntries.filter((e) => e.status !== "deleted");
+        const mistakes = detectCommitMistakes({
+          repoRoot: cwd,
+          changedFiles: mistakeFiles,
+          addedLinesByFile: addedByFile,
+          removedLinesByFile: removedByFile,
+        });
+        // Local de-dupe set (doesn't depend on the outer-scoped
+        // `seenPaths` which is declared later in this function — the
+        // 2026-05-23 wiring bug surfaced via smoke test).
+        const mistakesSeen = new Set<string>();
+        for (const m of mistakes) {
+          const key = `${m.file}|${m.type}`;
+          if (mistakesSeen.has(key)) continue;
+          mistakesSeen.add(key);
+          violations.push({
+            path: m.file,
+            kind: "modified",
+            detail: `${m.type}: ${m.evidence}${m.matchedLine ? ` [evidence: ${m.matchedLine}]` : ""}`,
+          });
+        }
+      } catch (e) {
+        if (!opts.quiet) err(`pinned: commit-mistakes detector failed (continuing): ${(e as Error).message}`);
+      }
+      // Translate to the legacy Violation shape so the existing error
+      // output formats them consistently. Skip duplicates already
+      // present in `violations` (e.g., the legacy detector + new
+      // detector both flagging the same pin file).
+      const seenPaths = new Set(violations.map((v) => `${v.path}|${v.kind}`));
+      for (const ev of extraViolations) {
+        // Map new types onto kinds the existing output recognizes.
+        let kind: "deleted" | "modified" | "weakened" = "modified";
+        if (ev.type === "pin-deleted" || ev.type === "workflow-modified" || ev.type === "registry-entry-removed") {
+          kind = ev.severity === "block" && ev.type !== "workflow-modified" ? "deleted" : "modified";
+          if (ev.type === "pin-deleted") kind = "deleted";
+        } else {
+          kind = "weakened";
+        }
+        const key = `${ev.file}|${kind}`;
+        if (seenPaths.has(key)) continue;
+        seenPaths.add(key);
+        violations.push({
+          path: ev.file,
+          kind,
+          detail: `${ev.type}: ${ev.evidence}${ev.after ? ` [evidence: ${ev.after}]` : ""}`,
+        });
+      }
+    } catch (e) {
+      if (!opts.quiet) err(`pinned: guard-integrity detector failed (continuing): ${(e as Error).message}`);
+    }
+
+    if (violations.length === 0) process.exit(0);
+
+    // Record a BLOCK event in the status cache so the statusline shows
+    // "Pinned · blocked: <terse>" for ~2 min. Visible AHA moment.
+    // Best-effort — never let cache write failure stop the block.
+    try {
+      const { recordGuardBlocked } = await import("./statusline.js");
+      const first = violations[0];
+      // Map the legacy "kind" + path into a human-obvious short label.
+      // Statusline truncates at 50 chars so keep it tight.
+      const fileBase = first.path.split("/").pop() ?? first.path;
+      const kindLabel =
+        first.kind === "deleted" ? "AI deleted pin"
+          : first.kind === "weakened" ? "AI weakened pin"
+          : "AI edited pin";
+      const more = violations.length > 1 ? ` (+${violations.length - 1})` : "";
+      const summary = `${kindLabel} ${fileBase}${more}`;
+      recordGuardBlocked(opts.dir, { summary });
+    } catch { /* */ }
+
+    // Auto-fire LEARNED: each block becomes a lesson the next agent
+    // reading .pinned/ai-lessons.md sees. Dedupe by guardId so repeat
+    // attempts append evidence rather than duplicating entries.
+    try {
+      const { appendLesson } = await import("./aiLessons.js");
+      for (const v of violations.slice(0, 3)) {
+        const fileBase = v.path.split("/").pop() ?? v.path;
+        const guardId = `block-${v.kind}-${fileBase.replace(/\W+/g, "-")}`.toLowerCase();
+        const titleVerb = v.kind === "deleted" ? "Don't delete" : v.kind === "weakened" ? "Don't weaken" : "Don't edit";
+        appendLesson({
+          guardId,
+          title: `${titleVerb} ${fileBase}`,
+          pastMistake: v.detail
+            ? `${v.kind}: ${v.path} — ${v.detail}`
+            : `${v.kind}: ${v.path}`,
+          rule: `Do not ${v.kind === "deleted" ? "delete" : v.kind === "weakened" ? "weaken" : "edit"} ${v.path}. Fix the application code instead.`,
+          plainEnglish: `don't ${v.kind === "deleted" ? "delete" : v.kind === "weakened" ? "weaken" : "edit"} ${fileBase}`,
+          kind: "guard-block",
+        }, { repoRoot: cwd, statusCacheDir: opts.dir });
+      }
+    } catch { /* best-effort */ }
+
+    err("");
+    err("✗ pinned: refusing to commit — protected pin tests were removed, modified, or weakened.");
+    err("");
+    for (const v of violations) {
+      const tag = v.kind === "deleted" ? "DELETED" : v.kind === "weakened" ? "WEAKENED" : "MODIFIED";
+      const detail = v.detail ? `  (${v.detail})` : "";
+      err(`  [${tag}] ${v.path}${detail}`);
+    }
+    err("");
+    err("  Pinned tests are permanent contracts. Allowed paths:");
+    err("    • Retire the pin (recommended): pinned retire <claim-id> --reason=\"...\"");
+    err("      — moves the test to tests/pinned/retired/ with an audit entry,");
+    err("        commit the move and the guard does not fire again.");
+    err("    • Bypass for ONE commit (no audit trail):");
+    err("        PINNEDAI_ALLOW_PIN_EDIT=1 git commit ...");
+    err("");
+    err("  If you are an AI agent and a pinned test is failing, FIX THE APPLICATION CODE.");
+    err("  Do not modify, skip, or delete the pinned test to make it pass.");
+    err("");
+    process.exit(2);
+  });
+
+// Detect content that weakens a test rather than just modifying it.
+// Returns a short human-readable detail string when a weakening shape
+// is present, or null. Conservative: only flags very-likely weakening
+// (the goal is a SPECIFIC error message; non-weakening edits already
+// get blocked by the generic "modified" branch upstream).
+function detectWeakeningPattern(addedSource: string): string | null {
+  if (!addedSource) return null;
+  // `it.skip(`, `describe.skip(`, `test.skip(`
+  if (/\b(?:it|test|describe)\.skip\s*\(/.test(addedSource)) return ".skip added to a previously-active test";
+  // `xit(`, `xtest(`, `xdescribe(` — jest shorthand for skip
+  if (/\b(?:xit|xtest|xdescribe)\s*\(/.test(addedSource)) return "xit/xtest/xdescribe (skip shorthand) added";
+  // `expect(true).toBe(true)` or `expect(1).toBe(1)` — no-op assertion
+  if (/\bexpect\s*\(\s*(?:true|1|"")\s*\)\.toBe\s*\(\s*(?:true|1|"")\s*\)/.test(addedSource)) {
+    return "no-op assertion (expect(true).toBe(true) etc.) added";
+  }
+  // `expect.assertions(0)` — declares zero assertions, defeating the test
+  if (/\bexpect\.assertions\s*\(\s*0\s*\)/.test(addedSource)) return "expect.assertions(0) added — defeats the test";
+  // `return;` as the literal first statement of an `it(...)` body —
+  // a sneaky way to skip without using .skip. Conservative match.
+  if (/\bit\s*\([^)]*,\s*(?:async\s+)?\(\)\s*=>\s*\{\s*return\s*;/.test(addedSource)) {
+    return "early return added to test body — defeats the assertions";
+  }
+  return null;
+}
+
+// ---------- install-agent-rules / uninstall-agent-rules / agent-rules ----------
+//
+// Opt-in wiring of AI coder config files (CLAUDE.md, .cursorrules,
+// .github/copilot-instructions.md, etc.) to point at .pinned/ai-lessons.md.
+// Per [[tier-model-final-2026-05-23]] this is strictly opt-in — Pinned
+// never silently modifies user-owned agent files.
+
+program
+  .command("install-agent-rules")
+  .description(
+    "Add a Pinned-managed rules block to your AI coder's config file(s) (CLAUDE.md, .cursorrules, etc.) so the agent reads .pinned/ai-lessons.md before edits. Opt-in only."
+  )
+  .option("--path <path>", "Only install into this specific file (relative to repo root).")
+  .option("--create", "If no agent config exists, create CLAUDE.md.")
+  .option("--quiet", "Suppress non-error output.")
+  .action(async (opts: { path?: string; create?: boolean; quiet?: boolean }) => {
+    const { wireAgents } = await import("./agentConfig.js");
+    const results = wireAgents({
+      repoRoot: process.cwd(),
+      installAgentRules: true,
+      createIfAbsent: opts.create === true,
+      onlyPath: opts.path,
+    });
+    const acted = results.filter((r) => r.action !== "skipped");
+    if (acted.length === 0) {
+      if (!opts.quiet) {
+        out("");
+        out("No agent config files found to wire.");
+        out("");
+        out("Either:");
+        out("  • Create one yourself (CLAUDE.md, .cursorrules, .github/copilot-instructions.md, etc.) and re-run, OR");
+        out("  • Run with --create to bootstrap CLAUDE.md.");
+        out("");
+      }
+      return;
+    }
+    if (!opts.quiet) {
+      out("");
+      out("✓ Pinned agent rules installed:");
+      for (const r of acted) {
+        out(`  ${r.action.padEnd(10)} ${r.target.path}  (${r.target.name})`);
+      }
+      out("");
+      out("Each file now points your AI coder at .pinned/ai-lessons.md and the Pinned guard rules.");
+      out("Re-run anytime — the block is idempotent.");
+      out("Undo: pinned uninstall-agent-rules");
+      out("");
+    }
+  });
+
+// `pinned install-claude` — opt-in helper that drops Claude-Code-style
+// slash commands into .claude/commands/*.md so users get clickable
+// /pinned-status /pinned-list /pinned-review /pinned-done shortcuts
+// inside Claude Code. NOT auto-run by `pinned init` — must be invoked
+// explicitly (see [[locked-decisions]] in CLAUDE.md: don't add
+// .claude/commands/* during normal init).
+program
+  .command("install-claude")
+  .description(
+    "Opt-in: add /pinned-status, /pinned-list, /pinned-review, and /pinned-done slash commands to .claude/commands/ for Claude Code."
+  )
+  .option("--quiet", "Suppress non-error output.")
+  .action(async (opts: { quiet?: boolean }) => {
+    const cwd = process.cwd();
+    const commandsDir = join(cwd, ".claude", "commands");
+    const fs = await import("node:fs");
+    if (!fs.existsSync(commandsDir)) {
+      fs.mkdirSync(commandsDir, { recursive: true });
+    }
+    // Each slash command is a markdown file. Claude Code reads the file
+    // when the user types `/<name>` and treats the contents as the
+    // instructions for that one turn.
+    type CommandFile = { slug: string; body: string };
+    const commands: CommandFile[] = [
+      {
+        slug: "pinned-status",
+        body: [
+          "Show the current Pinned guard state for this repository.",
+          "",
+          "Run `pinned status` in the project shell and summarize the output for the user. Highlight the total guard count, any failing guards, and the last block event if present.",
+        ].join("\n"),
+      },
+      {
+        slug: "pinned-list",
+        body: [
+          "List the active Pinned guards in this repository.",
+          "",
+          "Run `pinned list --verbose` in the project shell and present the result as a bulleted list. If the user follows up asking about a specific guard, read the corresponding test file from `tests/pinned/`.",
+        ].join("\n"),
+      },
+      {
+        slug: "pinned-review",
+        body: [
+          "Run a full Pinned review: Guard Integrity check + scan-diff + AI-lessons check.",
+          "",
+          "1. Run `pinned review` in the project shell.",
+          "2. Summarize the PASS / REVIEW / BLOCK status in plain English.",
+          "3. If REVIEW or BLOCK, list the specific actions the user should take.",
+        ].join("\n"),
+      },
+      {
+        slug: "pinned-done",
+        body: [
+          "Pre-completion check — call this BEFORE telling the user a code change is finished.",
+          "",
+          "1. Run `pinned review` to check for unprotected risk surfaces.",
+          "2. Run `pinned check-guard-removal` to detect any guard weakening/skip/delete.",
+          "3. Report the PASS / REVIEW / BLOCK summary in your final response. Do NOT say the work is done if the status is BLOCK without explicit user acknowledgement.",
+        ].join("\n"),
+      },
+    ];
+
+    const written: string[] = [];
+    const skipped: string[] = [];
+    for (const cmd of commands) {
+      const path = join(commandsDir, `${cmd.slug}.md`);
+      if (fs.existsSync(path)) {
+        skipped.push(cmd.slug);
+        continue;
+      }
+      fs.writeFileSync(path, cmd.body + "\n");
+      written.push(cmd.slug);
+    }
+
+    if (!opts.quiet) {
+      out("");
+      if (written.length > 0) {
+        out("✓ Pinned slash commands installed in Claude Code:");
+        for (const slug of written) {
+          out(`  /${slug}    .claude/commands/${slug}.md`);
+        }
+      }
+      if (skipped.length > 0) {
+        out("");
+        out(`Skipped (already present): ${skipped.map((s) => "/" + s).join(", ")}`);
+      }
+      out("");
+      out("Type any of the slash commands inside Claude Code to invoke them.");
+      out("Remove anytime with: rm -f .claude/commands/pinned-*.md");
+      out("");
+    }
+  });
+
+program
+  .command("uninstall-agent-rules")
+  .description("Remove the Pinned-managed rules block from all agent config files. Files themselves are preserved.")
+  .option("--quiet", "Suppress non-error output.")
+  .action(async (opts: { quiet?: boolean }) => {
+    const { KNOWN_AGENT_TARGETS, unwireAgent } = await import("./agentConfig.js");
+    const removed: string[] = [];
+    const skipped: string[] = [];
+    for (const t of KNOWN_AGENT_TARGETS) {
+      const abs = join(process.cwd(), t.path);
+      const r = unwireAgent(abs);
+      if (r === "removed") removed.push(t.path);
+      else skipped.push(`${t.path} (${r})`);
+    }
+    if (!opts.quiet) {
+      out("");
+      if (removed.length === 0) {
+        out("No Pinned rule blocks found in known agent config files.");
+      } else {
+        out("✓ Removed Pinned rule blocks from:");
+        for (const p of removed) out(`  - ${p}`);
+      }
+      out("");
+    }
+  });
+
+program
+  .command("agent-rules")
+  .description("Show which agent config files have the Pinned rule block installed.")
+  .action(async () => {
+    const { statusAgents } = await import("./agentConfig.js");
+    const rows = statusAgents(process.cwd());
+    out("");
+    out("Agent config file              | exists | pinned block");
+    out("-------------------------------|--------|-------------");
+    for (const r of rows) {
+      const path = r.target.path.padEnd(30);
+      const exists = (r.exists ? "yes" : "no").padEnd(6);
+      const block = r.exists ? (r.hasPinnedBlock ? "✓ wired" : "—") : "—";
+      out(`${path} | ${exists} | ${block}`);
+    }
+    out("");
+    const wiredCount = rows.filter((r) => r.hasPinnedBlock).length;
+    if (wiredCount === 0) {
+      out("No agent config files are wired. Run `pinned install-agent-rules` to opt in.");
+    } else {
+      out(`${wiredCount} agent config file(s) wired. Your AI coder will read .pinned/ai-lessons.md before edits.`);
+    }
+    out("");
+  });
+
+// ---------- context (AI preflight) ----------
+//
+// Prints the current Pinned context as plain text — meant to be run
+// BEFORE the AI starts editing. Surfaces all AI lessons + the rule
+// "do not delete/skip/weaken pinned tests." Output is short enough
+// to paste into a prompt or include in CI logs.
+//
+// Per [[strategic-pivot-guard-integrity]]: the lessons file alone isn't
+// enough — agent configs must point at it. This command is the
+// runtime form ("read the rules NOW") that complements the static
+// CLAUDE.md / .cursorrules pointers.
+
+program
+  .command("context")
+  .description("Print the current Pinned context (lessons + rules) for an AI coder to read before editing.")
+  .option("--json", "Emit machine-readable JSON.")
+  .action(async (opts: { json?: boolean }) => {
+    const cwd = process.cwd();
+    const { readLessons, readLessonsJson } = await import("./aiLessons.js");
+    const lessons = readLessonsJson({ repoRoot: cwd });
+    const count = readLessons({ repoRoot: cwd }).count;
+
+    if (opts.json) {
+      out(JSON.stringify({
+        rules: [
+          "Do not delete, skip, or weaken any test in tests/pinned/.",
+          "Do not add .skip / .only / xit / xtest / .todo to pinned tests.",
+          "Do not replace exact assertions (toBe(401)) with loose ones (toBeTruthy/toBeDefined).",
+          "Do not add || true / ?? true / catch(() => true) to bypass assertions.",
+          "Do not delete .github/workflows/pinned.yml or modify tests/pinned/.registry.json by hand.",
+          "To retire a pin, run `pinned retire <claim-id> --reason=\"...\"` — never delete or rename manually.",
+          "If a pinned test fails, FIX THE APPLICATION CODE — do not modify the test.",
+        ],
+        lessons,
+      }, null, 2));
+      return;
+    }
+
+    out("");
+    out("Pinned context for AI coders (read before editing):");
+    out("");
+    out("RULES:");
+    out("  - Do not delete, skip, or weaken any test in tests/pinned/.");
+    out("  - Do not add .skip / .only / xit / xtest / .todo to pinned tests.");
+    out("  - Do not replace exact assertions like toBe(401) with loose ones (toBeTruthy/toBeDefined).");
+    out("  - Do not add || true / ?? true / catch(() => true) to bypass assertions.");
+    out("  - Do not delete .github/workflows/pinned.yml or modify tests/pinned/.registry.json by hand.");
+    out("  - To retire a pin, run `pinned retire <claim-id> --reason=\"...\"` — never delete/rename manually.");
+    out("  - If a pinned test fails, FIX THE APPLICATION CODE — do not modify the test.");
+    out("");
+    if (lessons.length === 0) {
+      out("LESSONS: none yet. Pinned will add lessons as it learns from real bug fixes and guard violations.");
+    } else {
+      out(`LESSONS (${lessons.length}):`);
+      for (const l of lessons) {
+        out(`  - ${l.rule}`);
+        if (l.plainEnglish && l.plainEnglish !== l.rule) {
+          out(`      tl;dr: ${l.plainEnglish}`);
+        }
+      }
+    }
+    out("");
+    out(`(${count} total in .pinned/ai-lessons.md — read the file for full Past mistake / Rule / Guard details.)`);
+    out("");
+  });
+
+// ---------- probe-admin (P0 #3 reporter) ----------
+//
+// Enumerate admin-shape routes (path-detected) and report their
+// protection state: explicit inline auth, covered by middleware, or
+// unprotected. Lightweight reporter — does NOT make HTTP requests
+// (that requires PREVIEW_URL, deferred to v0.2). Per
+// [[strategic-pivot-guard-integrity]] this is P0 #3.
+
+program
+  .command("probe-admin")
+  .description("Enumerate inferred admin/internal routes and report their protection state.")
+  .option("--json", "Emit machine-readable JSON.")
+  .action(async (opts: { json?: boolean }) => {
+    const cwd = process.cwd();
+    const { scanDiffFull, detectAuthChecksInDiff } = await import("./scanDiff.js");
+    const { readdirSync, lstatSync } = await import("node:fs");
+
+    const files: string[] = [];
+    const walk = (dir: string, rel: string): void => {
+      let entries: string[];
+      try { entries = readdirSync(dir); } catch { return; }
+      for (const name of entries) {
+        if (name === "node_modules" || name === ".git" || name === "dist" || name === "build") continue;
+        const next = join(dir, name);
+        let st;
+        try { st = lstatSync(next); } catch { continue; }
+        if (st.isSymbolicLink()) continue;
+        if (st.isDirectory()) walk(next, rel ? `${rel}/${name}` : name);
+        else if (st.isFile()) files.push(rel ? `${rel}/${name}` : name);
+      }
+    };
+    walk(cwd, "");
+
+    const changed = files.map((p) => ({ path: p, status: "added" as const }));
+    const scan = scanDiffFull({ changedFiles: changed, prBodyClaims: [], existingPins: [] });
+    const adminRoutes = scan.suggestions.filter((s) => s.template === "auth-required" && s.route);
+
+    // Check whether middleware covers the routes (single middleware-auth hit)
+    const diffByFile = new Map<string, string[]>();
+    for (const f of changed) {
+      try {
+        const content = (await import("node:fs")).readFileSync(join(cwd, f.path), "utf8");
+        diffByFile.set(f.path, content.split("\n"));
+      } catch { /* */ }
+    }
+    let middlewareHit: { filePath: string; signature: string } | null = null;
+    try {
+      const hits = detectAuthChecksInDiff(diffByFile);
+      const mw = hits.find((h) => h.route === "* (middleware)");
+      if (mw) middlewareHit = { filePath: mw.filePath, signature: mw.signature };
+    } catch { /* */ }
+
+    type Report = {
+      route: string;
+      file: string;
+      protection: "middleware" | "inline" | "none";
+    };
+    const reports: Report[] = adminRoutes.map((s) => {
+      const file = s.files[0] ?? "";
+      // For simplicity: if middleware-auth detected, attribute all
+      // routes to it (real middleware matchers can be narrower but
+      // this is the best signal we have without parsing the matcher).
+      const protection: Report["protection"] = middlewareHit ? "middleware" : "none";
+      return { route: s.route!, file, protection };
+    });
+
+    if (opts.json) {
+      out(JSON.stringify({
+        adminRoutes: reports,
+        middlewareAuth: middlewareHit,
+      }, null, 2));
+      return;
+    }
+
+    out("");
+    out("Pinned · probe-admin");
+    out(`  inferred admin/internal routes: ${reports.length}`);
+    if (middlewareHit) {
+      out(`  middleware auth detected: ${middlewareHit.filePath}`);
+      out(`    signature: ${middlewareHit.signature.slice(0, 80)}`);
+    } else {
+      out(`  middleware auth: none detected`);
+    }
+    out("");
+    if (reports.length === 0) {
+      out("  No admin/internal route shapes found in repo.");
+    } else {
+      out("  Routes:");
+      for (const r of reports.slice(0, 30)) {
+        const tag = r.protection === "middleware" ? "✓ middleware" : r.protection === "inline" ? "✓ inline" : "⚠ no protection";
+        out(`    ${r.route.padEnd(40)}  ${tag.padEnd(15)}  ${r.file}`);
+      }
+      if (reports.length > 30) out(`    ... and ${reports.length - 30} more`);
+    }
+    out("");
+    if (!middlewareHit && reports.some((r) => r.protection === "none")) {
+      out("  Hint: if these routes ARE auth-protected by something Pinned doesn't recognize, add the missing pattern to AUTH_CHECK_PATTERNS or set PREVIEW_URL and use the auth-required template's HTTP test.");
+      out("");
+    }
+  });
+
+// ---------- audit --learned ----------
+//
+// Scans the repo for sibling code paths that may exhibit the same
+// mistake patterns Pinned has already learned (from bug-fix guards
+// or proactive failure-mode detection). Per [[strategic-pivot-guard-integrity]]
+// this closes the loop: bug → guard → siblings audited → future
+// edits checked → AI lesson saved.
+//
+// High-confidence findings would auto-pin in observe mode (Pro
+// feature in the eventual cloud version); v0.1 just SURFACES them.
+
+program
+  .command("audit")
+  .description("Audit the repo for sibling code paths that may share a learned mistake pattern.")
+  .option("--learned", "Use patterns Pinned has learned (currently: auth-required + returns-status).")
+  .option("--category <cat>", "Only audit one category: auth | validation")
+  .option("--verbose", "Show low-confidence findings too.")
+  .option("--json", "Emit machine-readable JSON.")
+  .action(async (opts: { learned?: boolean; category?: string; verbose?: boolean; json?: boolean }) => {
+    if (!opts.learned) {
+      err("audit currently supports --learned only. Run: pinned audit --learned");
+      process.exit(1);
+    }
+    const cwd = process.cwd();
+    const { findUnprotectedSiblings, AUTH_CHECK_PATTERNS } = await import("./scanDiff.js");
+    const { readLessons } = await import("./aiLessons.js");
+
+    const lessons = readLessons({ repoRoot: cwd });
+
+    const VALIDATION_PATTERNS: RegExp[] = [
+      /\bz\.object\s*\(/,
+      /\.parseAsync\s*\(/,
+      /\.safeParse(?:Async)?\s*\(/,
+      /\byup\.object\s*\(/,
+      /\bvalidate\s*\([^)]*req\.body/,
+      /\bschema\.parse\s*\(/,
+      /\b(?:reply|res)\.(?:code|status)\s*\(\s*400\b/,
+    ];
+
+    const wantAuth = !opts.category || opts.category === "auth";
+    const wantValidation = !opts.category || opts.category === "validation";
+
+    type Finding = {
+      category: "auth" | "validation";
+      filePath: string;
+      route: string | null;
+      confidence: "high" | "medium" | "low";
+      reason: string;
+    };
+    const findings: Finding[] = [];
+
+    if (wantAuth) {
+      try {
+        const out = findUnprotectedSiblings({
+          repoPath: cwd,
+          patterns: AUTH_CHECK_PATTERNS,
+          triggerFilePath: "",
+          triggerRoute: "* (middleware)",
+          category: "auth",
+        });
+        for (const s of out) {
+          if (!opts.verbose && s.confidence === "low") continue;
+          findings.push({ category: "auth", filePath: s.filePath, route: s.route, confidence: s.confidence, reason: s.reason });
+        }
+      } catch (e) {
+        if (!opts.json) err(`auth audit failed: ${(e as Error).message}`);
+      }
+    }
+    if (wantValidation) {
+      try {
+        const out = findUnprotectedSiblings({
+          repoPath: cwd,
+          patterns: VALIDATION_PATTERNS,
+          triggerFilePath: "",
+          triggerRoute: "* (middleware)",
+          category: "validation",
+        });
+        for (const s of out) {
+          if (!opts.verbose && s.confidence === "low") continue;
+          findings.push({ category: "validation", filePath: s.filePath, route: s.route, confidence: s.confidence, reason: s.reason });
+        }
+      } catch (e) {
+        if (!opts.json) err(`validation audit failed: ${(e as Error).message}`);
+      }
+    }
+
+    const high = findings.filter((f) => f.confidence === "high");
+    const medium = findings.filter((f) => f.confidence === "medium");
+    const low = findings.filter((f) => f.confidence === "low");
+
+    if (opts.json) {
+      out(JSON.stringify({
+        lessonsCount: lessons.count,
+        learnedGuardIds: lessons.guardIds,
+        findings: {
+          high: high.length,
+          medium: medium.length,
+          low: low.length,
+          total: findings.length,
+        },
+        details: findings,
+      }, null, 2));
+    } else {
+      // Plain-English banner. Avoids internal jargon like "high-confidence
+      // findings would auto-pin in observe mode" — devs don't know what
+      // observe mode is and shouldn't need to. Just say WHAT was checked
+      // and what to do.
+      out("");
+      out("◆ Pinned · AUDIT");
+      out("");
+      const learnedFrom = lessons.count > 0
+        ? `${lessons.count} lesson${lessons.count === 1 ? "" : "s"}`
+        : "what Pinned has learned in this repo";
+      out(`Checked similar code paths based on ${learnedFrom}.`);
+      out("");
+      if (findings.length === 0) {
+        out("✓ No similar code paths look risky.");
+        out("  Either this repo is well-covered or Pinned didn't recognize the pattern in other files.");
+      } else {
+        const totalSurfaced = high.length + medium.length;
+        out(`Found ${totalSurfaced} place${totalSurfaced === 1 ? "" : "s"} worth a look:`);
+        // Plain-English category labels (replace "auth" / "validation"
+        // with a verb the user can act on).
+        const friendlyCategory = (c: string): string => {
+          if (c === "auth") return "looks like a route file with no login check";
+          if (c === "validation") return "looks like a write route with no input validation";
+          return c;
+        };
+        if (high.length > 0) {
+          out("");
+          out(`  Most likely to need attention (${high.length}):`);
+          for (const f of high.slice(0, 20)) {
+            const path = f.route ?? f.filePath;
+            out(`    ⚠ ${path}  —  ${friendlyCategory(f.category)}`);
+          }
+        }
+        if (medium.length > 0) {
+          out("");
+          out(`  Worth checking when you have time (${medium.length}):`);
+          for (const f of medium.slice(0, 20)) {
+            const path = f.route ?? f.filePath;
+            out(`    · ${path}  —  ${friendlyCategory(f.category)}`);
+          }
+        }
+        if (low.length > 0 && opts.verbose) {
+          out("");
+          out(`  Less likely matches (${low.length} · shown because --verbose):`);
+          for (const f of low.slice(0, 10)) {
+            out(`    · ${f.filePath}  —  ${friendlyCategory(f.category)}`);
+          }
+        }
+        out("");
+        out("Open each file and decide:");
+        out("  • If it should have the same protection — add the check, then run `pinned init --auto` again to capture it.");
+        out("  • If it's intentionally public / different — ignore it.");
+      }
+      out("");
+    }
+
+    // Record AUDIT event in status cache so statusline can show
+    // "Pinned · AUDIT · N sibling risks checked".
+    try {
+      const { recordSiblingAudit } = await import("./statusline.js").catch(() => ({ recordSiblingAudit: null as null | ((d: string, a: { count: number }) => void) }));
+      if (recordSiblingAudit) recordSiblingAudit(resolve(cwd, "tests/pinned"), { count: findings.length });
+    } catch { /* */ }
   });
 
 // ---------- retire ----------
@@ -5402,6 +7126,22 @@ function describeClaim(c: Claim): string {
       return `pkg-exports    ${c.modulePath}  →  exports [${c.exports.join(", ")}]`;
     case "secret-not-public":
       return `secret-shape   ${c.publicPrefix}*  →  none contains [${c.secretMarkers.join(", ")}]`;
+    case "url-literal-preserved":
+      return `url-literal    ${c.filePath}  →  contains "${c.urlLiteral}"`;
+    case "tsc-clean":
+      return `tsc-clean      ${c.tsconfigPath}  →  exits 0`;
+    case "module-export-stable":
+      return `export-stable  ${c.modulePath}  →  exports ${c.exportName}`;
+    case "react-route-registered":
+      return `route          ${c.routerFilePath}  →  path ${c.routePath}`;
+    case "webhook-handler-exists":
+      return `webhook        ${c.filePath}  →  ${c.provider} handler signature`;
+    case "import-path-resolves":
+      return `import         ${c.sourceFilePath}  →  ${c.importPath} resolves`;
+    case "changed-literal-preserved":
+      return `changed-literal ${c.filePath}  →  ${c.shape}: ${c.oldValue} → ${c.newValue}`;
+    case "form-submit-error-handling":
+      return `form-error     ${c.filePath}  →  onSubmit keeps try/catch or .catch`;
   }
 }
 
@@ -5452,11 +7192,12 @@ const WORKFLOW_YAML = `# Generated by \`pinnedai init\`. Tweak freely.
 #   - pull_request — scans the diff, posts suggestions, auto-commits pins
 #   - issue_comment — listens for \`@pinned add: <claim>\` to pin from a comment
 #
-# Auto-commit is on for both Free and Pro (opt out with PINNEDAI_AUTOCOMMIT=false
-# repo variable). Pro/Team/Enterprise orgs are detected automatically via OIDC —
-# no license key needed. BYOK (opt-in, paid only) is activated by setting
-# PINNEDAI_BYOK=anthropic or PINNEDAI_BYOK=openai in repo variables, plus the
-# matching PINNEDAI_ANTHROPIC_KEY / PINNEDAI_OPENAI_KEY secret.
+# Auto-commit is on by default (opt out with PINNEDAI_AUTOCOMMIT=false
+# repo variable). BYOK (bring-your-own-key) LLM mode is opt-in via repo
+# secrets: set PINNEDAI_BYOK=anthropic | openai | claude-code | github-models
+# and provide the matching key (PINNEDAI_ANTHROPIC_KEY / PINNEDAI_OPENAI_KEY /
+# PINNEDAI_GITHUB_TOKEN). Without BYOK, Pinned runs in deterministic mode
+# (regex-based detectors only) — fully functional, just no LLM proposer.
 
 name: pinned
 on:
@@ -5489,6 +7230,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      # GUARD INTEGRITY CHECK — backstop for Layer 1 (pre-commit hook).
+      # Catches the case where AI used \`git commit --no-verify\` locally
+      # to bypass the pre-commit hook and pushed a .skip()/.only()/
+      # weakened-assertion/deleted-pin commit. Without this CI-side
+      # check, vitest would report skipped tests as success (exit 0)
+      # and the PR would be incorrectly greenlit.
+      - name: Guard Integrity — block bypassed/.skip'd/weakened pins
+        run: npx -y pinnedai@${version} check-guard-removal --base "origin/\${{ github.event.pull_request.base.ref }}"
+
+      # Run the pinned test suite. Pins with no PREVIEW_URL self-skip
+      # via it.skipIf — they don't fail-fast. Add a vitest install
+      # fallback in case the customer repo doesn't have it locally.
+      - name: Run pinned tests (block on broken guards)
+        run: |
+          if [ -d tests/pinned ] && ls tests/pinned/*.test.ts >/dev/null 2>&1; then
+            if [ -f node_modules/.bin/vitest ]; then
+              ./node_modules/.bin/vitest run tests/pinned/ --reporter=verbose --no-coverage
+            else
+              # Last-resort: vitest not installed in the repo. Fall back
+              # to npx with no-install so this step doesn't silently pass.
+              npx -y -p vitest@^2 vitest run tests/pinned/ --reporter=verbose --no-coverage
+            fi
+          else
+            echo "No pinned tests to run yet — first PR will create them."
+          fi
 
       - name: Parse claims from PR description
         env:
