@@ -360,15 +360,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           upgrade_prompt: null,
         });
       }
-      const review = await runPinned(cwd, ["review"], 90_000);
+      // `pinned guard --json` is the only command that emits proper
+      // PASS / REVIEW / BLOCK with exit codes 0 / 1 / 2. `pinned review`
+      // always exits 0 (no enforcement path) so we deliberately do NOT
+      // call it here.
+      const guard = await runPinned(cwd, ["guard", "--json"], 90_000);
       const guardCheck = await runPinned(cwd, ["check-guard-removal"], 30_000);
       const s = readLastStatus(cwd);
 
-      const guardBlocked = guardCheck.code !== 0;
-      const reviewFailed = review.code !== 0;
+      let guardJson: {
+        verdict?: "PASS" | "REVIEW" | "BLOCK";
+        touchedPins?: number;
+        unprotectedSurfaces?: Array<{
+          template?: string;
+          route?: string;
+          reason?: string;
+        }>;
+      } = {};
+      try {
+        guardJson = JSON.parse(guard.stdout);
+      } catch {
+        // Fall back to exit-code-based mapping below.
+      }
+
+      const guardBlocked =
+        guardCheck.code !== 0 || guardJson.verdict === "BLOCK" || guard.code === 2;
+      const reviewNeeded =
+        guardJson.verdict === "REVIEW" ||
+        (guard.code === 1 && !guardBlocked) ||
+        (guardJson.unprotectedSurfaces?.length ?? 0) > 0;
       const status: Status = guardBlocked
         ? "block"
-        : reviewFailed
+        : reviewNeeded
         ? "review"
         : "pass";
 
@@ -414,7 +437,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           guardCheck.stdout.slice(0, 300);
         humanSummary = `◆ Pinned · BLOCK · ${summaryParts.join(" · ")}. Blocked: ${blockDetail}`;
       } else {
-        humanSummary = `◆ Pinned · REVIEW · ${summaryParts.join(" · ")}. Inspect: ${review.stdout.slice(0, 300)}`;
+        const surfaces = guardJson.unprotectedSurfaces ?? [];
+        const surfaceSummary = surfaces
+          .slice(0, 3)
+          .map((su) =>
+            su.route
+              ? `${su.template ?? "unknown"} ${su.route}`
+              : su.template ?? "unknown"
+          )
+          .join("; ");
+        humanSummary = `◆ Pinned · REVIEW · ${summaryParts.join(" · ")}.${
+          surfaceSummary ? " Unprotected: " + surfaceSummary : ""
+        }`;
       }
 
       const agentInstruction =
@@ -440,7 +474,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         agent_instruction: agentInstruction,
         next_step: nextStep,
         upgrade_prompt: maybeUpgradePrompt(s),
-        raw: (review.stdout + "\n" + guardCheck.stdout).slice(0, 4000),
+        raw: (guard.stdout + "\n" + guardCheck.stdout).slice(0, 4000),
       });
     }
 
@@ -501,13 +535,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         description,
         "--json",
       ]);
-      let parsed: { claims?: unknown[] } = {};
+      // `pinned check --json` emits a bare array of Claim objects, not
+      // an envelope object. Older drafts of this file assumed `{claims}`
+      // and always reported 0 — keep the shape robust to either form.
+      let claimCount = 0;
       try {
-        parsed = JSON.parse(r.stdout);
+        const parsed = JSON.parse(r.stdout);
+        if (Array.isArray(parsed)) {
+          claimCount = parsed.length;
+        } else if (parsed && Array.isArray(parsed.claims)) {
+          claimCount = parsed.claims.length;
+        }
       } catch {
-        // ignore
+        // not parseable — claimCount stays 0
       }
-      const claimCount = parsed.claims?.length ?? 0;
       return envelopeToContent({
         status: "info",
         human_summary: `Parsed ${claimCount} behavioral claim(s) from the PR description.`,

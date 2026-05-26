@@ -976,7 +976,11 @@ program
         ];
         const existing = candidates.filter((f) => existsSync(join(cwd, f)));
         if (existing.length === 0) {
+          // Match the offerAgentRulesInstall fallback: when no AI rule
+          // file exists we seed BOTH so the 40-60% VS Code + Copilot
+          // Free surface gets the rules.
           out(`  → CLAUDE.md (created — no AI rule file exists yet)`);
+          out(`  → .github/copilot-instructions.md (created — so Copilot Chat reads the rules too)`);
         } else {
           for (const f of existing) out(`  → ${f} (appends Pinned rule block)`);
         }

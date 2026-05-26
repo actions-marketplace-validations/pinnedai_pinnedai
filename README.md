@@ -41,7 +41,7 @@ Pinned ships across every major AI-coder surface:
 
 | Surface | What you get | How to install |
 |---|---|---|
-| **VS Code / Cursor / Windsurf / Codium** | `◆ pinned · N guards · ✓` in the status bar, rich hover tooltip with recent guards + latest AI lesson, click → Quick Pick with `pinned status / list / review` actions. Works in stock VS Code (Copilot users), Cursor, Windsurf, Codium. | Bundled `.vsix` auto-installs during `pinned init` |
+| **VS Code / Cursor / Windsurf / Codium** | `◆ pinned · N guards · ✓` in the status bar, rich hover tooltip with recent guards + latest AI lesson, click → Quick Pick (action chooser) → command runs in a Pinned-managed terminal. Works in stock VS Code (Copilot users), Cursor, Windsurf, Codium. | Bundled `.vsix` auto-installs during `pinned init` (until we publish to the Marketplace + Open VSX in v0.1.1) |
 | **Claude Code** | Statusline + UserPromptSubmit hook (`◆ pinned · LEARNED · 1 new AI mistake`, transient block-event messages). Optional `/pinned-status`, `/pinned-list`, `/pinned-review`, `/pinned-done` slash commands. | Statusline auto-wired by `init`; slash commands via `npx pinnedai install-claude` |
 | **GitHub Copilot Chat (free + paid)** | Reads Pinned rules from `.github/copilot-instructions.md` before generating code | Auto-created during `init` |
 | **MCP-aware tools (Claude Desktop, Cline, Continue)** | `pinned_before_code_change`, `pinned_before_done_check`, `pinned_scan_diff`, `pinned_list_guards`, `pinned_check_pr_description`, `pinned_suggest_init` as native tools with structured `human_summary` + must-report `agent_instruction` fields | Add `pinnedai-mcp` to the tool's MCP config — see [docs/integrations/](./docs/integrations/) |

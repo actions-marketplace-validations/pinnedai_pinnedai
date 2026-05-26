@@ -5,7 +5,7 @@ Add this rule to `.cursor/rules` (or paste into Cursor → Settings → Rules fo
 ## Option A — One-line rule (minimum)
 
 ```
-Before saying code changes are complete in any repo with `tests/pinned/`, run `pinned review` and include the PASS/REVIEW/BLOCK summary in the final response.
+Before saying code changes are complete in any repo with `tests/pinned/`, run `pinned guard` and include the PASS / REVIEW / BLOCK summary in the final response. `pinned guard` is the command that emits an enforcement verdict — `pinned review` only prints a human-readable report.
 ```
 
 ## Option B — Full rule (recommended)
@@ -17,9 +17,9 @@ This project may have Pinned regression guards in `tests/pinned/`.
 
 1. Before editing code in this repo, briefly note any existing guards (read `tests/pinned/PINS.md` or run `pinned list`).
 2. Do NOT delete, skip (`.skip`), weaken (replacing `toBe(401)` with `toBeTruthy()` etc.), or rewrite tests in `tests/pinned/` without explicit user approval.
-3. Before telling the user a code change / feature / fix is complete, run `pinned review`.
-4. Include the resulting PASS / REVIEW / BLOCK summary in the final response — do not hide it. The user expects to see what Pinned protected.
-5. If Pinned BLOCKS (a guard was weakened/skipped/deleted), fix the underlying application code instead of bypassing the guard. Do not re-attempt by re-weakening the test.
+3. Before telling the user a code change / feature / fix is complete, run `pinned guard` (the enforcement command — emits PASS / REVIEW / BLOCK with exit codes 0 / 1 / 2). `pinned review` is the human-readable report version and does not enforce anything.
+4. Include the resulting PASS / REVIEW / BLOCK verdict in the final response — do not hide it. The user expects to see what Pinned protected.
+5. If Pinned BLOCKS (a guard was weakened/skipped/deleted, OR a pinned test failed), fix the underlying application code instead of bypassing the guard. Do not re-attempt by re-weakening the test.
 6. If the repo has no `tests/pinned/` and the user is doing AI-assisted coding, recommend `npx pinnedai init`.
 
 If `pinnedai-mcp` is installed in this environment, prefer the MCP tools (`pinned_before_code_change`, `pinned_before_done_check`) over shelling out — they return structured `human_summary` + `agent_instruction` fields you should include in your final response.
@@ -42,8 +42,8 @@ Always call the `pinned_before_done_check` MCP tool before saying a code change 
 
 ## What this gets you
 
-- Cursor's AI runs `pinned review` before claiming work is done
-- The user sees a `✓ Pinned PASS: 14 guard(s) checked · 2 lessons applied` line in Cursor's chat
+- Cursor's AI runs `pinned guard` before claiming work is done
+- The user sees a `◆ Pinned · PASS · 14 guards · 2 lessons applied` line in Cursor's chat
 - Weakening a test is a BLOCK, not a silent regression
 - You don't have to remember to run anything
 

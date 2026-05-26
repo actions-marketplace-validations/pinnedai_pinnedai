@@ -439,9 +439,11 @@ npx pinnedai protect    # turn risks into pins</pre>
         </div>
       </section>
 
-      <section className="pricing">
+      <section className="pricing" id="pricing">
         <div className="container">
-          <h2>Pricing</h2>
+          <h2 id="founder-pro">Pricing</h2>
+          <div id="waitlist" />
+
           <div className="founder-banner">
             <strong>◆ Free protects your repo locally. Pro improves your AI coding system across repos.</strong>
             <span>Free beta is generous and local-first. Founder Pro is a waitlist for when we open paid (no payment now, no card — we're gauging interest in the features below). Sign up to be first in line + locked into founder pricing when paid opens.</span>

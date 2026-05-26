@@ -1,15 +1,23 @@
 {
-  "status": "green",
-  "failingCount": 0,
-  "failingClaimIds": [],
+  "status": "failing",
+  "failingCount": 7,
+  "failingClaimIds": [
+    "v0-1-1-auth-required-api-admin-export-rw7ne7",
+    "v0-1-1-returns-status-api-signup-15x1ys",
+    "v0-1-1-returns-status-api-users-12hl5q",
+    "v0-1-1-returns-status-api-users-um7t93",
+    "baseline-20260525-lockfile-integrity-lockfile-pnpm-lock-yaml-e7a06ea703b2-tb6mqy",
+    "baseline-20260525-secret-not-public-secret-not-public-vite-12jyea",
+    "v0-1-1-cli-output-contains-node-apps-cli-dist-cli-js-version-1o1gxj"
+  ],
   "totalPins": 58,
   "safetyNotes": 0,
   "recentlyAddedCount": 1,
   "recentlyAddedAt": "2026-05-26T15:44:05.757Z",
   "suggestedCount": 0,
-  "lastCheckedSha": "4e2e0fcbdab6efa32de2b3c84b93b88d5da52507",
-  "lastCheckedDirtyHash": "d1cb3efb48ef8b75",
-  "updatedAt": "2026-05-26T15:44:05.757Z",
+  "lastCheckedSha": "1b67431c4a74ddfa976de8e458236315ac3e813f",
+  "lastCheckedDirtyHash": "7540c0c31af84d7a",
+  "updatedAt": "2026-05-26T15:56:37.749Z",
   "lastAutoProtectAt": "2026-05-26T15:35:19.295Z",
   "lastAddNotifiedAt": "2026-05-25T21:15:17.542Z",
   "recentlyAddedSummaries": [
@@ -27,5 +35,69 @@
   "guardsSavedLifetime": 11,
   "lastLessonAt": "2026-05-25T21:15:17.545Z",
   "lastLessonSummary": "Do not weaken pinned tests to make CI pass.",
-  "lessonsLifetime": 6
+  "lessonsLifetime": 6,
+  "breaksCaught": 7,
+  "lastCatchAt": "2026-05-26T15:44:09.653Z",
+  "lastCatchClaimId": "v0-1-1-auth-required-api-admin-export-rw7ne7",
+  "catchHistory": [
+    {
+      "caughtAt": "2026-05-26T15:44:09.653Z",
+      "claimId": "v0-1-1-auth-required-api-admin-export-rw7ne7",
+      "claimText": "/api/admin/export requires admin role",
+      "template": "auth-required",
+      "route": "/api/admin/export",
+      "originPr": "v0-1-1"
+    },
+    {
+      "caughtAt": "2026-05-26T15:44:09.653Z",
+      "claimId": "v0-1-1-returns-status-api-signup-15x1ys",
+      "claimText": "POST /api/signup returns 400 on missing email",
+      "template": "returns-status",
+      "route": "/api/signup",
+      "originPr": "v0-1-1"
+    },
+    {
+      "caughtAt": "2026-05-26T15:44:09.653Z",
+      "claimId": "v0-1-1-returns-status-api-users-12hl5q",
+      "claimText": "/api/users returns 422 on invalid email",
+      "template": "returns-status",
+      "route": "/api/users",
+      "originPr": "v0-1-1"
+    },
+    {
+      "caughtAt": "2026-05-26T15:44:09.653Z",
+      "claimId": "v0-1-1-returns-status-api-users-um7t93",
+      "claimText": "/api/users returns 401 on missing token",
+      "template": "returns-status",
+      "route": "/api/users",
+      "originPr": "v0-1-1"
+    },
+    {
+      "caughtAt": "2026-05-26T15:44:09.653Z",
+      "claimId": "baseline-20260525-lockfile-integrity-lockfile-pnpm-lock-yaml-e7a06ea703b2-tb6mqy",
+      "claimText": "lockfile-integrity pnpm-lock.yaml sha256 e7a06ea703b2",
+      "template": "lockfile-integrity",
+      "badCase": "`pnpm-lock.yaml` SHA-256 changed (lockfile was regenerated or hand-edited; transitive deps may have shifted)",
+      "originPr": "baseline-20260525"
+    },
+    {
+      "caughtAt": "2026-05-26T15:44:09.653Z",
+      "claimId": "baseline-20260525-secret-not-public-secret-not-public-vite-12jyea",
+      "claimText": "no VITE_* env var ever contains a secret (SECRET/TOKEN/PRIVATE_KEY/API_KEY)",
+      "template": "secret-not-public",
+      "badCase": "a `VITE_` env var with a secret-shaped suffix (SECRET, TOKEN, PRIVATE_KEY, API_KEY) was introduced — would leak a server secret into the client bundle",
+      "originPr": "baseline-20260525"
+    },
+    {
+      "caughtAt": "2026-05-26T15:44:09.653Z",
+      "claimId": "v0-1-1-cli-output-contains-node-apps-cli-dist-cli-js-version-1o1gxj",
+      "claimText": "`node ./apps/cli/dist/cli.js --version` outputs `0.0.1`",
+      "template": "cli-output-contains",
+      "route": "node ./apps/cli/dist/cli.js --version",
+      "originPr": "v0-1-1"
+    }
+  ],
+  "checksRun": 1,
+  "verifiedStreak": 0,
+  "skippedCount": 3
 }
