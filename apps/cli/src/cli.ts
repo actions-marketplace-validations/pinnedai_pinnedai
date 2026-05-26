@@ -2775,12 +2775,27 @@ function previewHookScript(
 }
 
 function previewClaudeSettings(): string {
+  // Schema matches what installClaudeStatusline / installClaudeFailureHook
+  // actually writes: statusLine has `type: "command"` and each
+  // UserPromptSubmit entry is a wrapper `{ matcher, hooks: [{type, command}] }`.
+  // Drift here would mislead users about what `pinned init` is about to do.
   return JSON.stringify(
     {
-      statusLine: { command: "node ./apps/cli/dist/cli.js statusline" },
+      statusLine: {
+        type: "command",
+        command: "node ./apps/cli/dist/cli.js statusline",
+      },
       hooks: {
         UserPromptSubmit: [
-          { command: "node ./apps/cli/dist/cli.js hook-failure", matcher: "*" },
+          {
+            matcher: "",
+            hooks: [
+              {
+                type: "command",
+                command: "node ./apps/cli/dist/cli.js hook-failure",
+              },
+            ],
+          },
         ],
       },
     },

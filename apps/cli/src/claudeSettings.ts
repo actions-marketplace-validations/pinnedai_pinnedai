@@ -16,10 +16,23 @@ import {
 } from "node:fs";
 import { join, dirname } from "node:path";
 
+// Claude Code's settings.json schema. Two corrections vs an earlier
+// shape we used to write (and which Claude Code silently ignored):
+//
+//   1. statusLine requires `type: "command"` alongside the command
+//      string — without `type`, Claude Code skips rendering.
+//   2. Each hooks.UserPromptSubmit (and PreToolUse / PostToolUse) entry
+//      is a wrapper object `{ matcher, hooks: [{ type, command }] }`,
+//      NOT a flat `{ command, matcher }`. The wrapper carries one or
+//      more inner hooks; only the inner objects have `type` + `command`.
+type ClaudeHookCommand = { type: "command"; command: string };
+type ClaudeHookEntry = { matcher?: string; hooks: ClaudeHookCommand[] };
 type ClaudeSettings = {
-  statusLine?: { command?: string };
+  statusLine?: { type?: "command"; command?: string; padding?: number };
   hooks?: {
-    UserPromptSubmit?: Array<{ command?: string; matcher?: string }>;
+    UserPromptSubmit?: ClaudeHookEntry[];
+    PreToolUse?: ClaudeHookEntry[];
+    PostToolUse?: ClaudeHookEntry[];
   };
   [k: string]: unknown;
 };
@@ -110,7 +123,7 @@ export function installClaudeStatusline(repoRoot: string): ClaudeInstallResult {
       reason: `Existing statusLine.command is set to '${current}'. Remove it manually before installing Pinned.`,
     };
   }
-  settings.statusLine = { command: desiredCmd };
+  settings.statusLine = { type: "command", command: desiredCmd };
   writeSettingsAtomic(path, settings);
   return { status: "installed", path };
 }
@@ -122,13 +135,26 @@ export function installClaudeFailureHook(repoRoot: string): ClaudeInstallResult 
 
   const hooks = settings.hooks ?? {};
   const existing = hooks.UserPromptSubmit ?? [];
-  const alreadyHasPinned = existing.some(
-    (h) => typeof h?.command === "string" && h.command.includes("pinned") && h.command.includes("hook-failure")
+  // Walk the wrapper-and-inner-hooks shape; an entry counts as Pinned
+  // if any inner hook's command references pinned + hook-failure.
+  const alreadyHasPinned = existing.some((entry) =>
+    (entry?.hooks ?? []).some(
+      (h) =>
+        typeof h?.command === "string" &&
+        h.command.includes("pinned") &&
+        h.command.includes("hook-failure")
+    )
   );
   if (alreadyHasPinned) {
     return { status: "already-installed", path };
   }
-  hooks.UserPromptSubmit = [...existing, { command: desiredCmd, matcher: "*" }];
+  hooks.UserPromptSubmit = [
+    ...existing,
+    {
+      matcher: "",
+      hooks: [{ type: "command", command: desiredCmd }],
+    },
+  ];
   settings.hooks = hooks;
   writeSettingsAtomic(path, settings);
   return { status: "installed", path };
