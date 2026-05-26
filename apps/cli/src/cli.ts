@@ -3905,8 +3905,27 @@ program
 
       // Phase 2 — pinned test (unless --no-test).
       // We spawn it as a child process so it inherits the customer's
-      // vitest config + node_modules. Skip if no tests/pinned/ yet.
-      const shouldTest = opts.test !== false && existsSync(opts.dir);
+      // vitest config + node_modules. Skip when:
+      //   • opts.test === false (--no-test)
+      //   • tests/pinned/ doesn't exist yet (pre-init)
+      //   • tests/pinned/ exists but has zero .test.ts files (vitest
+      //     would exit 1 with "No test files found" — a fresh
+      //     pinned-init on a repo with no patterns yet to protect gets
+      //     stuck in this state, and guard would falsely BLOCK).
+      let pinTestFileCount = 0;
+      if (existsSync(opts.dir)) {
+        try {
+          const fs = await import("node:fs");
+          pinTestFileCount = fs
+            .readdirSync(opts.dir)
+            .filter((f) => f.endsWith(".test.ts"))
+            .length;
+        } catch {
+          // ignore
+        }
+      }
+      const shouldTest =
+        opts.test !== false && existsSync(opts.dir) && pinTestFileCount > 0;
       let testExitCode = 0;
       let testOutput = "";
       if (shouldTest) {
