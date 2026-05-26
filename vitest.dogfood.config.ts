@@ -7,6 +7,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["tests/pinned/**/*.test.ts"],
+    // Retired pins live in `tests/pinned/retired/` with audit entries;
+    // they are intentionally removed from the contract and should never
+    // run again. Excluding them here keeps `pnpm dogfood:pins` honest.
+    exclude: ["**/node_modules/**", "tests/pinned/retired/**"],
     // Pin tests spawn the CLI binary, which can take a few hundred ms
     // each. Bump default 5s timeout to be safe on slow CI runners.
     testTimeout: 30_000,

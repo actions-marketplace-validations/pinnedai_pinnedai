@@ -1,0 +1,6 @@
+{
+  "claimId": "v0-1-1-cli-output-contains-node-apps-cli-dist-cli-js-version-1o1gxj",
+  "retiredAt": "2026-05-26T16:02:15.573Z",
+  "reason": "CLI legitimately bumped from 0.0.1 (placeholder) to 0.1.0 for launch",
+  "retiredBy": "michaelzon"
+}

@@ -1,0 +1,6 @@
+{
+  "claimId": "v0-1-1-returns-status-api-users-12hl5q",
+  "retiredAt": "2026-05-26T16:02:15.735Z",
+  "reason": "Pinned from an early test-fixture session; /api/users is not real code in this repo",
+  "retiredBy": "michaelzon"
+}

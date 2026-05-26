@@ -1,0 +1,6 @@
+{
+  "claimId": "v0-1-1-returns-status-api-signup-15x1ys",
+  "retiredAt": "2026-05-26T16:02:15.673Z",
+  "reason": "Pinned from an early test-fixture session; /api/signup is not real code in this repo",
+  "retiredBy": "michaelzon"
+}

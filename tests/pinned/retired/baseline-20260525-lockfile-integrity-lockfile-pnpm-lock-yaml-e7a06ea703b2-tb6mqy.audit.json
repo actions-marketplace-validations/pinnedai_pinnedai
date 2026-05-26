@@ -1,0 +1,6 @@
+{
+  "claimId": "baseline-20260525-lockfile-integrity-lockfile-pnpm-lock-yaml-e7a06ea703b2-tb6mqy",
+  "retiredAt": "2026-05-26T16:02:15.913Z",
+  "reason": "Legitimate lockfile change: added @modelcontextprotocol/sdk + zod for the new pinnedai-mcp package",
+  "retiredBy": "michaelzon"
+}

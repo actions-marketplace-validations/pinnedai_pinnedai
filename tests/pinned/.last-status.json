@@ -10,14 +10,14 @@
     "baseline-20260525-secret-not-public-secret-not-public-vite-12jyea",
     "v0-1-1-cli-output-contains-node-apps-cli-dist-cli-js-version-1o1gxj"
   ],
-  "totalPins": 58,
+  "totalPins": 51,
   "safetyNotes": 0,
   "recentlyAddedCount": 1,
   "recentlyAddedAt": "2026-05-26T15:44:05.757Z",
   "suggestedCount": 0,
-  "lastCheckedSha": "1b67431c4a74ddfa976de8e458236315ac3e813f",
-  "lastCheckedDirtyHash": "7540c0c31af84d7a",
-  "updatedAt": "2026-05-26T15:56:37.749Z",
+  "lastCheckedSha": "9d80d29638d0410edb08ac71b862fe9c60eec7c2",
+  "lastCheckedDirtyHash": "c871f1aec785773b",
+  "updatedAt": "2026-05-26T16:03:37.064Z",
   "lastAutoProtectAt": "2026-05-26T15:35:19.295Z",
   "lastAddNotifiedAt": "2026-05-25T21:15:17.542Z",
   "recentlyAddedSummaries": [
@@ -97,7 +97,7 @@
       "originPr": "v0-1-1"
     }
   ],
-  "checksRun": 1,
+  "checksRun": 2,
   "verifiedStreak": 0,
-  "skippedCount": 3
+  "skippedCount": 2
 }

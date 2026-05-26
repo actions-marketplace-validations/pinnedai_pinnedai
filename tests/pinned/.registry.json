@@ -13,7 +13,10 @@
       "filename": "v0-1-1-cli-output-contains-node-apps-cli-dist-cli-js-version-1o1gxj.test.ts",
       "pinnedAt": "2026-05-20T03:06:38.275Z",
       "pinnedBy": "michaelzon",
-      "status": "active"
+      "status": "retired",
+      "retiredAt": "2026-05-26T16:02:15.574Z",
+      "retireReason": "CLI legitimately bumped from 0.0.1 (placeholder) to 0.1.0 for launch",
+      "retiredBy": "michaelzon"
     },
     {
       "claimId": "v0-1-1-cli-output-contains-node-apps-cli-dist-cli-js-check-description-rate-limits-api-users-to-60-req-min-7llvs2",
@@ -164,7 +167,10 @@
       "filename": "v0-1-1-auth-required-api-admin-export-rw7ne7.test.ts",
       "pinnedAt": "2026-05-21T03:07:08.675Z",
       "pinnedBy": "michaelzon",
-      "status": "active"
+      "status": "retired",
+      "retiredAt": "2026-05-26T16:02:15.626Z",
+      "retireReason": "Pinned from an early test-fixture session; /api/admin/export is not real code in this repo",
+      "retiredBy": "michaelzon"
     },
     {
       "claimId": "v0-1-1-returns-status-api-signup-15x1ys",
@@ -182,7 +188,10 @@
       "filename": "v0-1-1-returns-status-api-signup-15x1ys.test.ts",
       "pinnedAt": "2026-05-21T03:07:08.676Z",
       "pinnedBy": "michaelzon",
-      "status": "active"
+      "status": "retired",
+      "retiredAt": "2026-05-26T16:02:15.674Z",
+      "retireReason": "Pinned from an early test-fixture session; /api/signup is not real code in this repo",
+      "retiredBy": "michaelzon"
     },
     {
       "claimId": "v0-1-1-returns-status-api-users-12hl5q",
@@ -200,7 +209,10 @@
       "filename": "v0-1-1-returns-status-api-users-12hl5q.test.ts",
       "pinnedAt": "2026-05-21T03:07:08.676Z",
       "pinnedBy": "michaelzon",
-      "status": "active"
+      "status": "retired",
+      "retiredAt": "2026-05-26T16:02:15.736Z",
+      "retireReason": "Pinned from an early test-fixture session; /api/users is not real code in this repo",
+      "retiredBy": "michaelzon"
     },
     {
       "claimId": "v0-1-1-returns-status-api-users-um7t93",
@@ -218,7 +230,10 @@
       "filename": "v0-1-1-returns-status-api-users-um7t93.test.ts",
       "pinnedAt": "2026-05-21T03:12:24.682Z",
       "pinnedBy": "michaelzon",
-      "status": "active"
+      "status": "retired",
+      "retiredAt": "2026-05-26T16:02:15.798Z",
+      "retireReason": "Pinned from an early test-fixture session; duplicate /api/users pin",
+      "retiredBy": "michaelzon"
     },
     {
       "claimId": "auto-20260521-cli-exits-zero-node-apps-cli-dist-cli-js-try-help-12ta9k",
@@ -727,9 +742,12 @@
       "filename": "baseline-20260525-secret-not-public-secret-not-public-vite-12jyea.test.ts",
       "pinnedAt": "2026-05-25T21:15:17.448Z",
       "pinnedBy": "michaelzon",
-      "status": "active",
+      "status": "retired",
       "covers": {},
-      "badCase": "a `VITE_` env var with a secret-shaped suffix (SECRET, TOKEN, PRIVATE_KEY, API_KEY) was introduced — would leak a server secret into the client bundle"
+      "badCase": "a `VITE_` env var with a secret-shaped suffix (SECRET, TOKEN, PRIVATE_KEY, API_KEY) was introduced — would leak a server secret into the client bundle",
+      "retiredAt": "2026-05-26T16:02:15.859Z",
+      "retireReason": "False positive: detector hit VITE_SECRET literal in apps/cli/src/templates/secretNotPublic.ts (our own template source, not a real env-var leak). Improve detector to skip our own template files in a follow-up.",
+      "retiredBy": "michaelzon"
     },
     {
       "claimId": "baseline-20260525-lockfile-integrity-lockfile-pnpm-lock-yaml-e7a06ea703b2-tb6mqy",
@@ -744,13 +762,16 @@
       "filename": "baseline-20260525-lockfile-integrity-lockfile-pnpm-lock-yaml-e7a06ea703b2-tb6mqy.test.ts",
       "pinnedAt": "2026-05-25T21:15:17.467Z",
       "pinnedBy": "michaelzon",
-      "status": "active",
+      "status": "retired",
       "covers": {
         "files": [
           "pnpm-lock.yaml"
         ]
       },
-      "badCase": "`pnpm-lock.yaml` SHA-256 changed (lockfile was regenerated or hand-edited; transitive deps may have shifted)"
+      "badCase": "`pnpm-lock.yaml` SHA-256 changed (lockfile was regenerated or hand-edited; transitive deps may have shifted)",
+      "retiredAt": "2026-05-26T16:02:15.914Z",
+      "retireReason": "Legitimate lockfile change: added @modelcontextprotocol/sdk + zod for the new pinnedai-mcp package",
+      "retiredBy": "michaelzon"
     },
     {
       "claimId": "baseline-20260525-cli-exits-zero-pinned-help-1bmxyg",
