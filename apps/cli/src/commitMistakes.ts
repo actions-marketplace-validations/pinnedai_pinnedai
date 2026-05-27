@@ -44,20 +44,84 @@ export type CommitMistakeInput = {
 
 // 1. Committed secrets — patterns the regex is very specific about
 //    to keep FP rate low. Each pattern is anchored to known token
-//    prefixes that real keys use (OpenAI: sk-, AWS: AKIA, GitHub:
-//    ghp_/gho_/ghs_, npm: npm_, Slack: xox[baprs]-).
+//    prefixes that real keys use. Coverage should match what GitHub's
+//    push-protection scanner catches at minimum, so Pinned's pre-commit
+//    hook flags the same leaks GitHub would reject post-push.
 const SECRET_PATTERNS: RegExp[] = [
+  // OpenAI
   /\bsk-[A-Za-z0-9_-]{20,}/,
   /\bsk-proj-[A-Za-z0-9_-]{30,}/,
+  // Anthropic
+  /\bsk-ant-[A-Za-z0-9_-]{30,}/,
+  // AWS
   /\bAKIA[0-9A-Z]{16}\b/,
+  // GitHub
   /\bghp_[A-Za-z0-9]{30,}\b/,
   /\bgho_[A-Za-z0-9]{30,}\b/,
   /\bghs_[A-Za-z0-9]{30,}\b/,
+  /\bghu_[A-Za-z0-9]{30,}\b/,
   /\bgithub_pat_[A-Za-z0-9_]{50,}\b/,
+  // npm
   /\bnpm_[A-Za-z0-9]{30,}\b/,
+  // Slack
   /\bxox[baprs]-[A-Za-z0-9-]{10,}/,
-  /\bAIza[0-9A-Za-z_-]{30,}\b/, // Google API
+  // Google
+  /\bAIza[0-9A-Za-z_-]{30,}\b/,
+  // Stripe — secret + publishable + webhook signing + restricted keys
+  /\bsk_live_[A-Za-z0-9]{24,}\b/,
+  /\bsk_test_[A-Za-z0-9]{24,}\b/,
+  /\brk_live_[A-Za-z0-9]{24,}\b/,
+  /\brk_test_[A-Za-z0-9]{24,}\b/,
+  /\bwhsec_[A-Za-z0-9]{24,}\b/,
+  // Twilio
+  /\bSK[a-f0-9]{32}\b/,
+  // SendGrid
+  /\bSG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{30,}\b/,
+  // Discord bot tokens (3 base64 segments separated by dots)
+  /\b[MN][A-Za-z0-9]{23}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27}\b/,
+  // Mailgun
+  /\bkey-[a-f0-9]{32}\b/,
+  // Square access tokens
+  /\bsq0(?:atp|csp|idp)-[A-Za-z0-9_-]{20,}\b/,
+  // Shopify private/custom app access tokens
+  /\bshp(?:at|ca|pa|ss)_[a-fA-F0-9]{32}\b/,
+  // Cloudflare API tokens (40+ chars after prefix)
+  /\bCfRoVuB[A-Za-z0-9_-]{30,}\b/,
+  // Heroku API keys (UUID v4)
+  /\bheroku[A-Za-z]*['"\s:=]+[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/i,
+  // Datadog API + APP keys (32 hex / 40 hex)
+  /\b(?:dd-?api-?key|datadog[_-]?api[_-]?key)['"\s:=]+[a-f0-9]{32}\b/i,
+  // Postmark server tokens (UUID v4 with explicit name binding)
+  /\bpostmark[_-]?(?:server[_-]?)?token['"\s:=]+[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/i,
+  // PagerDuty integration / API keys
+  /\bpd_[A-Za-z0-9]{32,}\b/,
+  // Linear API keys
+  /\blin_api_[A-Za-z0-9]{40,}\b/,
+  // Notion integration tokens
+  /\bsecret_[A-Za-z0-9]{43,}\b/,
+  // Vercel tokens
+  /\b(?:vercel[_-]?(?:token|api[_-]?key))['"\s:=]+[A-Za-z0-9]{24,}\b/i,
+  // Supabase service role JWT (3 base64 segments)
+  /\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{40,}/,
+  // Generic high-entropy private key block headers
+  /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----/,
 ];
+
+// Secondary, weaker detection tier — emits WARN (not BLOCK). The
+// VALUE-based regexes above are very confident (a string matching
+// `sk_live_<24>` is almost always a real Stripe key) so blocking is
+// safe. NAME-based detection (`API_KEY = "..."`) is much less
+// confident: legitimate code does that all the time with non-secret
+// values (UUIDs, mock data, cache keys, version strings). So we
+// downgrade to WARN — the user sees the heads-up, decides themselves,
+// and isn't forced to bypass the hook for benign assignments.
+const NAME_HINT_PATTERN =
+  /\b(SECRET|PRIVATE_KEY|API_KEY|ACCESS_TOKEN|AUTH_TOKEN|BEARER|CLIENT_SECRET|DB_PASSWORD|PASSWORD)\b[^=:]{0,40}[=:]\s*["'`]([A-Za-z0-9+/=_.\-]{20,})["'`]/i;
+
+// Strings that look like obvious placeholders, env-var refs, or
+// stub fixtures — skipping these keeps the WARN tier signal:noise high.
+const NAME_HINT_STUB_PATTERN =
+  /^(?:xxx+|your[_-].*|example|placeholder|todo|tbd|change[_-]me|\$\{.*\}|process\.env\.|null|undefined|0+|1+|test|fake|dummy)$/i;
 
 // File types where a "secret-looking" string is most likely a real
 // secret (vs documentation). We skip docs / examples / fixtures.
@@ -74,6 +138,11 @@ function detectSecretsInDiff(input: CommitMistakeInput): CommitMistakeViolation[
   for (const [filePath, lines] of added) {
     if (!fileLikelyHasRealSecret(filePath)) continue;
     const joined = lines.join("\n");
+
+    // Tier 1: BLOCKING — exact format match for a known-provider key.
+    // High confidence (a string matching `sk_live_<24>` is almost
+    // always a real Stripe key) so blocking the commit is safe.
+    let strictHit = false;
     for (const re of SECRET_PATTERNS) {
       const m = re.exec(joined);
       if (m) {
@@ -84,8 +153,32 @@ function detectSecretsInDiff(input: CommitMistakeInput): CommitMistakeViolation[
           evidence: `Looks like a real API key / token was committed (pattern: ${m[0].slice(0, 8)}...). Rotate immediately, remove from git history, and store in .env (gitignored).`,
           matchedLine: lines.find((l: string) => re.test(l))?.slice(0, 80),
         });
-        break; // one violation per file
+        strictHit = true;
+        break; // one strict-tier violation per file
       }
+    }
+    if (strictHit) continue;
+
+    // Tier 2: WARN — variable name hint (API_KEY=, SECRET=, etc.)
+    // bound to a long opaque value. NAME-based detection has a much
+    // higher FP rate than VALUE-based (lots of legitimate code uses
+    // those identifiers with non-secret values: UUIDs, cache keys,
+    // version strings, mock fixtures). So we never BLOCK on this
+    // tier — just emit a heads-up. The user decides; benign
+    // assignments don't get force-blocked.
+    for (const line of lines) {
+      const m = NAME_HINT_PATTERN.exec(line);
+      if (!m) continue;
+      const value = m[2];
+      if (NAME_HINT_STUB_PATTERN.test(value)) continue;
+      out.push({
+        type: "secret-committed",
+        severity: "warn",
+        file: filePath,
+        evidence: `This looks like it might be a secret (variable name: ${m[1]}, value length: ${value.length}). We can't tell from the name alone — if it's a real key, move to .env and add to .gitignore; if it's intentional fixture/mock data, ignore this warning. (We BLOCK only on known-format keys to keep the false-positive rate low.)`,
+        matchedLine: line.slice(0, 80),
+      });
+      break; // one warn-tier hit per file
     }
   }
   return out;
