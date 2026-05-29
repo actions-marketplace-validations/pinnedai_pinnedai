@@ -15,7 +15,7 @@ export function App() {
         <div className="welcome-banner">
           <strong>🎉 Welcome to pinnedai!</strong>
           <span>
-            Thanks for joining the free beta. Run <code>npx pinned init --auto</code> in
+            Thanks for joining the free beta. Run <code>npx pinnedai init --auto</code> in
             your repo to install Pinned's guards, AI lessons, and Guard Integrity
             blocker. No account or API key needed.
           </span>
@@ -28,224 +28,329 @@ export function App() {
           </button>
         </div>
       ) : null}
-      <header className="hero">
-        <div className="container">
-          <div className="brand">
-            <span className="dot" />
-            <span className="brand-name">pinnedai</span>
+
+      {/* ─── Top nav (sticky, subtle blur) ────────────────────────── */}
+      <nav className="nav">
+        <div className="container nav-inner">
+          <a href="/" className="nav-brand">
+            <span className="nav-dot" />
+            <span className="nav-name">pinnedai</span>
+          </a>
+          <div className="nav-links">
+            <a href="#how">How it works</a>
+            <a href="#protects">What it protects</a>
+            <a href="/proof">Proof</a>
+            <a href="https://github.com/pinnedai/pinnedai#readme">Docs</a>
+            <a href="https://github.com/pinnedai/pinnedai">GitHub</a>
           </div>
-          <div className="status-pill">Free beta · Founder Pro waitlist open</div>
-          <h1>Stop your AI coder from repeating bugs.</h1>
-          <p className="tagline-sub">
-            <strong>When your AI fixes a bug, drops auth headers, weakens error handling, skips a test, or breaks an app promise, Pinned captures the pattern, creates a guard, audits similar code paths, and keeps future AI edits from making the same mistake again.</strong>
-          </p>
-          <p className="lede">
-            Bug found → guard built → siblings audited → future edits checked → AI lesson saved.
-          </p>
-          <div className="install">
-            <code>npx pinnedai</code>
-            <span className="install-hint">— zero install, instant demo</span>
+          <a href="#get-started" className="nav-cta">Try free beta</a>
+        </div>
+      </nav>
+
+      {/* ─── Hero ─────────────────────────────────────────────────── */}
+      <header className="hero">
+        <div className="container hero-grid">
+          <div className="hero-copy">
+            <div className="status-pill">Free beta · Founder Pro waitlist open</div>
+            <h1>Stop your AI coder from repeating bugs.</h1>
+            <p className="hero-sub">
+              Pinned finds AI-prone failure patterns in your repo and turns them
+              into regression guards.
+            </p>
+            <p className="hero-sub hero-sub-2">
+              When your AI drops auth headers, weakens error handling, skips a
+              test, or breaks an app promise, Pinned captures the pattern,
+              audits similar code paths, and keeps future edits from repeating it.
+            </p>
+            <p className="loop">
+              <span className="loop-dot">●</span> Bug found
+              <span className="loop-arrow">→</span> guard built
+              <span className="loop-arrow">→</span> siblings audited
+              <span className="loop-arrow">→</span> future edits checked
+              <span className="loop-arrow">→</span> AI lesson saved
+            </p>
+            <div className="hero-cta-row">
+              <a href="#get-started" className="cta cta-primary">Try free beta</a>
+              <a href="/proof" className="cta cta-secondary">View proof</a>
+            </div>
+            <p className="hero-trust">
+              Local-first · No signup · Free beta
+            </p>
+          </div>
+          <div className="hero-visual">
+            <div className="terminal-card">
+              <div className="terminal-bar">
+                <span className="dot-red" />
+                <span className="dot-yellow" />
+                <span className="dot-green" />
+                <span className="terminal-title">npx pinnedai init --auto</span>
+              </div>
+              <pre className="terminal-body"><span className="t-accent">◆ Pinned · BASELINE CREATED</span>
+
+<span className="t-dim">Created 8 guards:</span>
+<span className="t-pass">  ✓</span> package exports stay stable
+<span className="t-pass">  ✓</span> client API <span className="t-mono">authHeaders()</span> preserved
+<span className="t-pass">  ✓</span> no public secrets
+<span className="t-pass">  ✓</span> pinned tests cannot be skipped/weakened
+<span className="t-dim">  + 4 more…</span>
+
+<span className="t-dim">Created 3 AI lessons:</span>
+<span className="t-pass">  ✓</span> Do not remove authHeaders() from API calls
+<span className="t-pass">  ✓</span> Do not weaken pinned tests to make CI pass
+<span className="t-pass">  ✓</span> Do not expose NEXT_PUBLIC_*SECRET*
+
+<span className="t-dim">Next:</span>
+<span className="t-prompt">$</span> npx pinnedai audit <span className="t-mono">--learned</span></pre>
+            </div>
           </div>
         </div>
       </header>
 
-      <section className="quick-start">
+      {/* ─── Proof strip ──────────────────────────────────────────── */}
+      <section className="proof-strip">
+        <div className="container">
+          <p className="proof-label">Tested on real JS/TS repos</p>
+          <div className="proof-grid">
+            <div className="proof-stat">
+              <div className="proof-num">6 / 6</div>
+              <div className="proof-text">repos created useful guards on install</div>
+            </div>
+            <div className="proof-stat">
+              <div className="proof-num">~11</div>
+              <div className="proof-text">guards per repo (average)</div>
+            </div>
+            <div className="proof-stat">
+              <div className="proof-num">2–4</div>
+              <div className="proof-text">AI lessons per repo</div>
+            </div>
+            <div className="proof-stat">
+              <div className="proof-num">17 / 17</div>
+              <div className="proof-text">guard-bypass mutations blocked</div>
+            </div>
+          </div>
+          <p className="proof-foot">
+            <a href="/proof">View the full proof page →</a>
+          </p>
+        </div>
+      </section>
+
+      {/* ─── Get started in 2 steps ───────────────────────────────── */}
+      <section className="quick-start" id="get-started">
         <div className="container">
           <h2>Get started in 2 steps</h2>
           <div className="quick-steps">
             <div className="quick-step">
               <div className="quick-step-num">1</div>
-              <h3>Install the GitHub Action</h3>
-              <pre className="quick-step-cmd">npx pinnedai init</pre>
+              <h3>Run Pinned locally</h3>
+              <pre className="quick-step-cmd">npx pinnedai init --auto</pre>
               <p>
-                Scaffolds <code>.github/workflows/pinned.yml</code> +{" "}
-                <code>tests/pinned/</code>. Offers to wire your Claude Code
-                statusline. No API key, no signup.
+                Scans your repo, creates baseline guards, writes AI lessons,
+                and optionally wires local hooks/statusline. No signup required.
               </p>
             </div>
             <div className="quick-step">
               <div className="quick-step-num">2</div>
-              <h3>Open a PR with a claim</h3>
-              <pre className="quick-step-cmd">{`## What this PR does
-- Auth required on /api/admin/export.
-- Rate-limits /api/users to 60 req/min.`}</pre>
+              <h3>Let Pinned protect future AI edits</h3>
+              <pre className="quick-step-cmd">{`npx pinnedai guard
+npx pinnedai audit --learned`}</pre>
               <p>
-                Pinned reads the description, generates the test file, commits it
-                to your PR branch, comments to confirm. Done.
+                Pinned checks guards, audits similar code paths, and blocks
+                edits that delete, skip, or weaken protected tests.
               </p>
             </div>
           </div>
+          <p className="quick-start-foot">
+            <em>PR-claim mode is also available</em> — claims like “/api/users is
+            rate-limited” in a PR description become permanent tests
+            automatically.
+          </p>
         </div>
       </section>
 
+      {/* ─── Interactive demo (guard builder) ─────────────────────── */}
       <section className="demo-section">
         <div className="container">
-          <h2>Try it right here</h2>
+          <h2>Try the guard builder</h2>
           <p className="section-lede">
-            Edit the PR description below — watch the generated test update live.
-            This is the exact parser and template code <code>npx pinnedai</code> ships.
+            Edit the PR description. Pinned extracts claims and shows the
+            guards it would create.
           </p>
           <Demo />
         </div>
       </section>
 
-      <section className="how-it-works">
+      {/* ─── How it works ─────────────────────────────────────────── */}
+      <section className="how-it-works" id="how">
         <div className="container">
           <h2>How it works</h2>
-          <div className="steps-grid">
-            <div className="step">
-              <div className="step-num">1</div>
-              <h3>AI changes your app</h3>
-              <p>
-                Your AI coder adds auth, rate limits, a webhook handler, a
-                payment flow, booking logic, or any other behavior that
-                matters. The PR description (or commit message) says what
-                changed.
-              </p>
+          <div className="how-grid">
+            <div className="how-card">
+              <div className="how-num">1</div>
+              <h3>AI changes code</h3>
+              <ul>
+                <li>PR claim, fix, or risky diff appears</li>
+                <li>Pinned detects guardable behavior</li>
+              </ul>
             </div>
-            <div className="step">
-              <div className="step-num">2</div>
-              <h3>Pinned protects the change</h3>
-              <p>
-                Pinned reads the claim ("auth required on /api/admin/export"),
-                generates a Vitest file that verifies it, and commits the file
-                to your repo. The test lives in <code>tests/pinned/</code> permanently.
-              </p>
+            <div className="how-card">
+              <div className="how-num">2</div>
+              <h3>Pinned builds guards</h3>
+              <ul>
+                <li>Writes tests to <code>tests/pinned/</code></li>
+                <li>Stores original evidence + reason</li>
+              </ul>
             </div>
-            <div className="step">
-              <div className="step-num">3</div>
-              <h3>Pinned verifies the promise — continuously</h3>
-              <p>
-                Every commit re-runs the pinned tests in the background. Most
-                of the time you see <code>✓ guards passing</code> — uptime,
-                not noise. If a future change ever breaks a protected
-                promise, CI fails loudly with the test file path + the
-                original PR ID so you can find the contract that was
-                broken. Richer PR comments with paste-ready repair prompts
-                are on the v0.2 roadmap.
-              </p>
+            <div className="how-card">
+              <div className="how-num">3</div>
+              <h3>Pinned learns the pattern</h3>
+              <ul>
+                <li>Appends to <code>.pinned/ai-lessons.md</code></li>
+                <li>Audits sibling code paths</li>
+              </ul>
+            </div>
+            <div className="how-card">
+              <div className="how-num">4</div>
+              <h3>Future edits are checked</h3>
+              <ul>
+                <li>Guards run in CI + git hooks</li>
+                <li>Skips / deletes / weakened assertions blocked</li>
+              </ul>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="examples">
+      {/* ─── What Pinned protects (category cards) ────────────────── */}
+      <section className="protects" id="protects">
         <div className="container">
           <h2>What Pinned protects</h2>
           <p className="section-lede">
-            Examples of claims your AI coder writes in PR descriptions that
-            become permanent CI tests:
+            Five categories of AI-prone failure patterns. Pinned detects them
+            on install, on every PR, and inside the pre-commit hook.
           </p>
-          <ul className="example-list">
-            <li><code>/api/admin/export</code> must require auth</li>
-            <li><code>/api/users</code> must be rate-limited to 60 req/min</li>
-            <li>The Stripe webhook must be idempotent on <code>event_id</code></li>
-            <li><code>pinned doctor</code> must exit 0 on a healthy repo</li>
-            <li><code>pinned init</code> must create <code>tests/pinned/.registry.json</code></li>
-            <li><code>parseConfig()</code> in <code>src/config.ts</code> must return <code>{"{\"version\": 1}"}</code></li>
-            <li>Admin routes should not silently become public</li>
-            <li>Bookings should create one appointment per request, not two</li>
-          </ul>
-          <p className="examples-foot">
-            Eight templates across three domains: web routes, CLI tools,
-            library functions. <a href="/for-nextjs">See the Next.js examples</a> or
-            run <code>npx pinnedai baseline</code> to find what your repo already promises.
-          </p>
+          <div className="protects-grid">
+            <div className="protect-card">
+              <div className="protect-icon" aria-hidden>🔒</div>
+              <h3>Auth &amp; access</h3>
+              <ul>
+                <li><code>/api/admin/export</code> requires auth</li>
+                <li>Role checks not stripped from middleware</li>
+                <li>Client API keeps <code>authHeaders()</code></li>
+              </ul>
+              <p className="protect-why">If AI strips auth, customers data leak.</p>
+            </div>
+            <div className="protect-card">
+              <div className="protect-icon" aria-hidden>⚡</div>
+              <h3>API correctness</h3>
+              <ul>
+                <li><code>/api/users</code> stays rate-limited</li>
+                <li>Webhooks remain idempotent on <code>event_id</code></li>
+                <li>Response status &amp; error handling intact</li>
+              </ul>
+              <p className="protect-why">If AI breaks this, double-charges &amp; outages.</p>
+            </div>
+            <div className="protect-card">
+              <div className="protect-icon" aria-hidden>🧱</div>
+              <h3>Repo integrity</h3>
+              <ul>
+                <li>Package exports stay stable</li>
+                <li>Imports resolve</li>
+                <li>CLI commands still exit 0</li>
+              </ul>
+              <p className="protect-why">If AI breaks this, downstream consumers crash.</p>
+            </div>
+            <div className="protect-card">
+              <div className="protect-icon" aria-hidden>🛡️</div>
+              <h3>AI guard integrity</h3>
+              <ul>
+                <li>Pinned tests cannot be <code>.skip</code>ped</li>
+                <li>Assertions cannot be weakened</li>
+                <li>Workflows / registry cannot be removed</li>
+              </ul>
+              <p className="protect-why">If AI tries to bypass the safety net, Pinned refuses the commit.</p>
+            </div>
+            <div className="protect-card">
+              <div className="protect-icon" aria-hidden>🔑</div>
+              <h3>Secrets &amp; public exposure</h3>
+              <ul>
+                <li>No <code>NEXT_PUBLIC_*SECRET*</code> leaks</li>
+                <li>No <code>.env</code> committed</li>
+                <li>No debug routes left exposed</li>
+              </ul>
+              <p className="protect-why">If AI exposes server secrets in the client bundle, your keys leak.</p>
+            </div>
+          </div>
         </div>
       </section>
 
+      {/* ─── Bugs Pinned catches (preserved + polished) ───────────── */}
       <section className="catches">
         <div className="container">
-          <h2>The bugs Pinned catches (the ones that hurt most)</h2>
+          <h2>Real bugs Pinned catches</h2>
           <p className="section-lede">
-            Pinned doesn't catch every AI bug — but it specializes in the
-            most expensive class. Below are exact regression patterns Pinned
-            guards against, ranked by what they cost when they ship.
+            Pinned doesn’t catch every bug. It focuses on expensive,
+            repeatable AI-coder failure modes — the ones that cost real money
+            when they ship.
           </p>
           <div className="catches-grid">
             <div className="catch-card catch-sev-1">
               <div className="catch-sev">🔴 SECURITY</div>
               <h3>Auth dropped from an admin route</h3>
               <p className="catch-scenario">
-                AI refactors <code>middleware.ts</code> to "clean up" the auth
-                pattern, accidentally drops the check on{" "}
-                <code>/api/admin/users-export</code>.
-              </p>
-              <p className="catch-without">
-                <strong>Without Pinned:</strong> any user can hit admin endpoints —
-                potential data leak, GDPR/SOC2 incident.
+                AI refactors <code>middleware.ts</code> to “clean up” the auth pattern,
+                accidentally drops the check on <code>/api/admin/users-export</code>.
               </p>
               <p className="catch-how">
                 <strong>How Pinned catches it:</strong>{" "}
-                <code>auth-required</code> pin sends an unauthenticated GET to
-                the route and asserts 401/403.
+                <code>auth-required</code> pin sends an unauthenticated request
+                and asserts 401/403.
               </p>
             </div>
             <div className="catch-card catch-sev-1">
               <div className="catch-sev">🔴 MONEY</div>
               <h3>Webhook idempotency broken</h3>
               <p className="catch-scenario">
-                New Stripe webhook handler doesn't dedupe by{" "}
-                <code>event_id</code>. Stripe retries on transient errors and
-                customer gets charged 2-3×.
-              </p>
-              <p className="catch-without">
-                <strong>Without Pinned:</strong> refunds, support tickets,
-                customer churn.
+                New Stripe webhook handler doesn’t dedupe by <code>event_id</code>.
+                Stripe retries, customer charged 2-3×.
               </p>
               <p className="catch-how">
                 <strong>How Pinned catches it:</strong>{" "}
-                <code>idempotent</code> pin replays the same{" "}
-                <code>event_id</code> twice and asserts identical response.
+                <code>idempotent</code> pin replays the same <code>event_id</code>{" "}
+                twice and asserts identical response.
               </p>
             </div>
             <div className="catch-card catch-sev-1">
               <div className="catch-sev">🔴 ACCESS</div>
               <h3>Role check stripped on a paid route</h3>
               <p className="catch-scenario">
-                AI refactors RBAC middleware to share a helper. The new helper
-                checks <em>that</em> a user is authenticated but not{" "}
-                <em>which</em> role. Free users now access admin features.
-              </p>
-              <p className="catch-without">
-                <strong>Without Pinned:</strong> revenue leak +
-                privilege-escalation breach.
+                AI shares an auth helper that checks <em>that</em> a user is
+                logged in but not <em>which</em> role. Free users access paid features.
               </p>
               <p className="catch-how">
                 <strong>How Pinned catches it:</strong>{" "}
-                <code>permission-required</code> pin sends 3 requests — no
-                auth, wrong-role token, right-role token — and asserts
-                401/403, 403, and 2xx respectively. The wrong-role direction
-                catches exactly this pattern.
+                <code>permission-required</code> pin sends no-auth, wrong-role,
+                and right-role requests — asserts 401, 403, and 2xx.
               </p>
             </div>
             <div className="catch-card catch-sev-2">
               <div className="catch-sev">🟠 DATA</div>
               <h3>Validation removed</h3>
               <p className="catch-scenario">
-                AI "simplifies" the signup flow, drops the email format check
+                AI “simplifies” the signup flow, drops the email format check
                 from <code>/api/signup</code>.
-              </p>
-              <p className="catch-without">
-                <strong>Without Pinned:</strong> junk emails in DB,
-                transactional emails bounce, downstream services crash.
               </p>
               <p className="catch-how">
                 <strong>How Pinned catches it:</strong>{" "}
-                <code>returns-status</code> pin asserts{" "}
-                <code>POST /api/signup</code> returns 400 on missing email.
+                <code>returns-status</code> pin asserts <code>POST /api/signup</code>{" "}
+                returns 400 on missing email.
               </p>
             </div>
             <div className="catch-card catch-sev-2">
               <div className="catch-sev">🟠 ABUSE</div>
               <h3>Rate limit removed or weakened</h3>
               <p className="catch-scenario">
-                AI implements rate limiting using an in-memory store that
-                resets on deploy. Each deploy effectively removes the limit.
-              </p>
-              <p className="catch-without">
-                <strong>Without Pinned:</strong> bot scrapers, brute-force
-                attempts, cloud bill spike.
+                AI implements rate limiting with an in-memory store that resets on
+                deploy. Each deploy effectively removes the limit.
               </p>
               <p className="catch-how">
                 <strong>How Pinned catches it:</strong>{" "}
@@ -260,185 +365,32 @@ export function App() {
                 AI renames a response field from <code>created_at</code> to{" "}
                 <code>createdAt</code>. Every downstream consumer crashes.
               </p>
-              <p className="catch-without">
-                <strong>Without Pinned:</strong> all-hands incident, prod
-                rollback, hours of debugging.
-              </p>
               <p className="catch-how">
                 <strong>How Pinned catches it:</strong>{" "}
-                <code>library-returns</code> /{" "}
-                <code>returns-status</code> pin asserts the expected response
+                <code>library-returns</code> pin asserts the expected response
                 shape — fails the moment the field is renamed.
               </p>
             </div>
           </div>
-          <p className="catches-foot">
-            Every catch above is from a real-world AI-coded regression pattern.
-            Pinned is built to make these specific kinds of bugs impossible to
-            ship silently. See{" "}
-            <a href="https://github.com/pinnedai/pinnedai/tree/main/tests/pinned">
-              tests/pinned/
-            </a>{" "}
-            in our own repo for a working example.
-          </p>
         </div>
       </section>
 
-      <section className="safety-pass">
+      {/* ─── Local-first trust strip ──────────────────────────────── */}
+      <section className="local-first">
         <div className="container">
-          <h2>Safety Pass — finds risky AI mistakes before they ship</h2>
-          <p className="section-lede">
-            Every <code>pinned</code> run includes a deterministic Safety Pass:
-            env vars used but not in <code>.env.example</code>, <code>NEXT_PUBLIC_*SECRET</code>{" "}
-            leaks, public CORS wildcards, destructive SQL in migrations, and lint
-            escape hatches. <strong>Zero LLM cost by default.</strong> Optional{" "}
-            <code>--summarize</code> sends only the findings JSON (never your diff)
-            to the hosted LLM for a 3-bullet summary.
-          </p>
-          <pre className="safety-example">
-{`$ pinned safety
-Safety Pass: 2 warnings · 1 info
-
-  ⚠ Env var \`STRIPE_SECRET_KEY\` is used in code but not listed in .env.example.
-     src/billing.ts:14
-     → Add STRIPE_SECRET_KEY= to .env.example so teammates know it's required.
-
-  ⚠ \`NEXT_PUBLIC_API_TOKEN\` is exposed to the browser but its name implies a secret.
-     src/client.ts:8
-     → Move to a server-only env var (drop NEXT_PUBLIC_).
-
-  · @ts-ignore detected
-     src/handler.ts:42`}
-          </pre>
-        </div>
-      </section>
-
-      <section className="surfaces">
-        <div className="container">
-          <h2>Where Pinned shows up</h2>
-          <p className="section-lede">
-            Pinned lives wherever AI coders work — local terminal, editor,
-            CI. It doesn't require a PR-first workflow.
-          </p>
-          <div className="surfaces-grid">
-            <div className="surface">
-              <div className="surface-label">Local CLI</div>
-              <pre className="surface-example">{`$ pnpm pinned status
-
-◆ Pinned status
-
-Pins:
-  ✓ 8 active, all passing
-
-Unpinned risks:
-  ⚠ 2 detected — run \`pinned protect\``}</pre>
-            </div>
-            <div className="surface">
-              <div className="surface-label">Claude Code statusline</div>
-              <pre className="surface-example">{`◆ pinned · 8 pins · ✓
-◆ pinned · 8 pins · ✗ 1 failing
-◆ pinned · 8 pins · ⚠ 2 risks`}</pre>
-              <p className="surface-hint">
-                Persistent bottom-bar indicator. Failure-only chat injection
-                — no noise when green.
-              </p>
-            </div>
-            <div className="surface">
-              <div className="surface-label">CLAUDE.md / .cursorrules</div>
-              <pre className="surface-example">{`## Pinned
-
-Rules:
-1. Before marking work complete, run \`pinned test\`.
-2. Don't delete tests in tests/pinned/.
-3. If a Pinned test fails, fix the app
-   code first — don't weaken the test.`}</pre>
-              <p className="surface-hint">
-                Optional opt-in via <code>pinned ai-rules install</code>. We
-                ask, we never auto-write.
-              </p>
-            </div>
-            <div className="surface">
-              <div className="surface-label">GitHub Action</div>
-              <pre className="surface-example">{`◆ Pinned protected this PR · 2 added · 14 total
-
-What was pinned:
-- tests/pinned/pr-42-auth-required-...
-  > Auth required on /api/admin/export.`}</pre>
-              <p className="surface-hint">
-                Short comment on every PR. Auto-commits pin files. Catches
-                the @pinned add: trigger from review comments.
-              </p>
-            </div>
-            <div className="surface">
-              <div className="surface-label">tests/pinned/ in your repo</div>
-              <pre className="surface-example">{`tests/pinned/
-├── pr-42-auth-required-...test.ts
-├── pr-43-rate-limit-...test.ts
-├── PINS.md         (visible registry)
-└── .registry.json  (state)`}</pre>
-              <p className="surface-hint">
-                Cancel Pinned → all your tests stay. The artifact IS the
-                product.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="why">
-        <div className="container">
-          <h2>The missing layer in the AI-coding stack</h2>
-          <p className="section-lede">
-            <strong>Cursor / Claude Code writes the code → CodeRabbit / Copilot reviews it → Pinned converts important claims into tests → CI enforces them forever.</strong>
-            Pinned isn't a CodeRabbit replacement. It's the artifact CodeRabbit doesn't leave behind.
-          </p>
-          <div className="why-grid">
-            <div className="why-card">
-              <div className="why-label">CodeRabbit / Greptile / Qodo</div>
-              <ul>
-                <li>Review comments at PR open</li>
-                <li>LLM judgment per PR (fragile + expensive)</li>
-                <li>Cancel → nothing carries forward</li>
-                <li>Find <em>possible</em> bugs</li>
-                <li>Advice disappears after merge</li>
-              </ul>
-            </div>
-            <div className="why-card why-card-us">
-              <div className="why-label">Pinned</div>
-              <ul>
-                <li><strong>Run baseline today</strong> — find 8 unprotected promises in 30 seconds</li>
-                <li><strong>Every PR</strong> — risk summary + auto-generated pins for new claims</li>
-                <li>Permanent tests in your repo with back-reference to the original PR</li>
-                <li>Cancel → thousands of tests stay yours</li>
-                <li>Tests that <em>document the contract and verify it continuously</em></li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="install">
-        <div className="container">
-          <h2>Install</h2>
-          <p className="section-lede">
-            One command. No signup. No API key.
-          </p>
-          <pre className="install-cmd">npx pinnedai init</pre>
-          <p className="install-foot">What it adds:</p>
-          <ul className="install-list">
-            <li>✓ <code>.github/workflows/pinned.yml</code> — GitHub Action wiring</li>
-            <li>✓ <code>tests/pinned/</code> directory with auto-maintained <code>PINS.md</code></li>
-            <li>✓ <code>tests/pinned/AGENT.md</code> — agent-readable rule reference</li>
-            <li>✓ Optional: appends a marked block to <code>CLAUDE.md</code> / <code>.cursorrules</code> (with your consent)</li>
-            <li>✓ Optional: <code>.claude/settings.json</code> for statusline + failure hook (with your consent)</li>
+          <h2>Local-first by default</h2>
+          <ul className="local-first-list">
+            <li>✓ No signup required for free beta</li>
+            <li>✓ Guards live in <code>tests/pinned/</code> in your repo</li>
+            <li>✓ AI lessons live in <code>.pinned/ai-lessons.md</code></li>
+            <li>✓ Agent-file integration (CLAUDE.md, .cursorrules) is opt-in</li>
+            <li>✓ LLM mode is optional and BYOK</li>
+            <li>✓ Source code never leaves your machine on the free tier</li>
           </ul>
-          <p className="install-foot">Then:</p>
-          <pre className="install-cmd">npx pinnedai baseline   # find unprotected promises today
-npx pinnedai status     # full breakdown
-npx pinnedai protect    # turn risks into pins</pre>
         </div>
       </section>
 
+      {/* ─── Pricing + waitlist ───────────────────────────────────── */}
       <section className="pricing" id="pricing">
         <div className="container">
           <h2 id="founder-pro">Pricing</h2>
@@ -446,7 +398,7 @@ npx pinnedai protect    # turn risks into pins</pre>
 
           <div className="founder-banner">
             <strong>◆ Free protects your repo locally. Pro improves your AI coding system across repos.</strong>
-            <span>Free beta is generous and local-first. Founder Pro is a waitlist for when we open paid (no payment now, no card — we're gauging interest in the features below). Sign up to be first in line + locked into founder pricing when paid opens.</span>
+            <span>Free beta is generous and local-first. Founder Pro is a waitlist for when we open paid (no payment now, no card — we’re gauging interest in the features below). Sign up to be first in line + locked into founder pricing when paid opens.</span>
           </div>
           <div className="tiers">
             <div className="tier">
@@ -454,7 +406,7 @@ npx pinnedai protect    # turn risks into pins</pre>
               <div className="tier-price">$0</div>
               <div className="tier-subtitle">For individual AI coders and early teams.</div>
               <ul>
-                <li><strong>Unlimited local guards</strong> — no cap on tests/pinned/</li>
+                <li><strong>Unlimited local guards</strong> — no cap on <code>tests/pinned/</code></li>
                 <li><strong>Unlimited local AI Lessons</strong> — Claude/Cursor read them before edits</li>
                 <li><strong>Guard Integrity</strong> — blocks AI from delete/skip/weaken</li>
                 <li>Replay-verified bug-fix guards</li>
@@ -462,7 +414,7 @@ npx pinnedai protect    # turn risks into pins</pre>
                 <li>Pre-commit + pre-push hooks, statusline integration</li>
                 <li>Report-only CI (run <code>npx pinned guard</code> in your own CI)</li>
                 <li>Optional BYOK AI proposer (limited during beta)</li>
-                <li>No API key required; no fixtures; one command setup</li>
+                <li>No API key required; one command setup</li>
               </ul>
             </div>
             <div className="tier tier-popular">
@@ -506,61 +458,40 @@ npx pinnedai protect    # turn risks into pins</pre>
         </div>
       </section>
 
+      {/* ─── FAQ (kept) ───────────────────────────────────────────── */}
       <section className="faq">
         <div className="container">
           <h2>FAQ</h2>
           <dl className="faq-list">
             <dt>Does Pinned catch every AI bug?</dt>
             <dd>
-              No — and we're upfront about that. Pinned catches a specific
-              class of bugs: <strong>the outright contract violation</strong>{" "}
-              (auth removed from a route, rate limit deleted, validation
-              stripped out, CLI command broken, library function returning
-              the wrong shape). These are exactly the kinds of mistakes AI
-              agents make most often. Pinned does <em>not</em> catch subtle
-              semantic regressions, race conditions, or business-logic bugs.
-              <br /><br />
-              The honest framing: Pinned writes down important behavior as
-              tests and verifies them continuously. Most of the time it's
-              quiet. When a future change breaks a protected promise, the
-              failure is loud, traceable, and tells the AI exactly what to fix.
+              No — and we’re upfront about that. Pinned catches a specific
+              class: <strong>outright contract violations</strong> (auth removed,
+              rate limit deleted, validation stripped, CLI broken, response
+              shape drifted). Exactly the mistakes AI agents make most often.
+              Pinned does <em>not</em> catch subtle semantic regressions, race
+              conditions, or business-logic bugs.
             </dd>
 
             <dt>How does Pinned handle false positives?</dt>
             <dd>
-              Pinned aims for zero false positives, but isn't there. Generated
-              pins are integration tests that run against your preview deploy,
-              and <strong>environment issues can occasionally cause a pin to
-              fail when nothing's actually broken</strong> — cold-start preview,
-              expired test credentials, network blips.
-              <br /><br />
-              Mitigations we ship today: <strong>double-confirm</strong> (every
-              catch is re-run twice with a 500ms gap before being reported as a
-              failure), <strong>silent skip</strong> when{" "}
-              <code>PREVIEW_URL</code> isn't set (no false alarm when there's
-              nothing to test against), and an{" "}
-              <strong><code>X-Pinned-Test: 1</code> header</strong> on every request so
-              your app can exclude Pinned traffic from rate limits, billing-tier
-              counters, and analytics. Per-pin flakiness quarantine is on the
-              v0.2 roadmap.
-              <br /><br />
-              If a catch ever looks wrong, re-run{" "}
-              <code>npx vitest run &lt;file&gt;</code> manually before changing
-              code — and please{" "}
-              <a href="https://github.com/pinnedai/pinnedai/issues">file an issue</a>{" "}
-              if it's spurious so we can tighten the template.
+              Pinned aims for zero false positives. Mitigations we ship today:
+              <strong> double-confirm</strong> (each catch is re-run twice with
+              a 500ms gap), <strong>silent skip</strong> when{" "}
+              <code>PREVIEW_URL</code> isn’t set, and an{" "}
+              <strong><code>X-Pinned-Test: 1</code> header</strong> on every
+              request so your app can exclude Pinned traffic from rate limits,
+              billing counters, and analytics.
             </dd>
 
             <dt>What if I never see a catch?</dt>
             <dd>
-              That's the most likely outcome — and it's still valuable.{" "}
-              <code>pinned status</code> shows <code>✓ 312 consecutive
-              successful runs</code>: silence reads as uptime, not absence.
-              TypeScript catches almost no "real" bugs either, but enforces
-              discipline that prevents whole classes of mistakes. Pinned
-              works the same way: the value is in the contract being written
-              down + auto-verified. Catches are the dramatic moment, not the
-              core value prop.
+              Most likely outcome — and it’s still valuable.{" "}
+              <code>pinned status</code> shows{" "}
+              <code>✓ 312 consecutive successful runs</code>: silence reads as
+              uptime, not absence. Same logic as TypeScript: most of the value
+              is in the contract being written down + verified, not in dramatic
+              catches.
             </dd>
 
             <dt>Does Pinned replace CodeRabbit / Greptile / Qodo?</dt>
@@ -571,50 +502,34 @@ npx pinnedai protect    # turn risks into pins</pre>
 
             <dt>Does Pinned commit to my repo?</dt>
             <dd>
-              Yes when auto-commit is on (default). Set repo variable{" "}
-              <code>PINNEDAI_AUTOCOMMIT=false</code> for paste-mode-only —
-              the Action posts the generated test in a PR comment instead.
+              Yes when auto-commit is on (default). Set{" "}
+              <code>PINNEDAI_AUTOCOMMIT=false</code> for paste-mode-only — the
+              Action posts the generated test in a PR comment instead.
             </dd>
 
             <dt>Does Pinned use my code for AI training?</dt>
             <dd>
-              No. PR-description text is sent to OpenAI for claim
-              extraction (subject to OpenAI's API data policy — not used
-              for training by default). Source code is never sent. The Safety
-              Pass is fully deterministic; the optional <code>--summarize</code>{" "}
-              flag sends only the findings JSON, not source or diff.
-            </dd>
-
-            <dt>Does Pinned need an API key?</dt>
-            <dd>
-              No — Free tier uses OIDC-keyless onboarding via GitHub Actions.
-              Pro can optionally set BYOK (Anthropic / OpenAI) for compliance.
-            </dd>
-
-            <dt>What happens at the monthly LLM-call cap?</dt>
-            <dd>
-              The Worker returns a 429 with three options: upgrade to Pro,
-              set BYOK (your own provider key, no Pinned-side cap), or wait
-              until the 1st. Existing pins keep running locally either way —
-              they don't need the Worker.
+              No. PR-description text is sent to OpenAI for claim extraction
+              (subject to OpenAI’s API data policy — not used for training by
+              default). Source code is never sent. Safety Pass is fully
+              deterministic; <code>--summarize</code> sends only the findings
+              JSON, not source or diff.
             </dd>
 
             <dt>Can I remove a pin?</dt>
             <dd>
-              Yes — run <code>pinned retire &lt;claim-id&gt; --reason="..."</code>.
-              The test moves to <code>tests/pinned/retired/</code> with a
-              per-file <code>&lt;id&gt;.audit.json</code> for the audit trail.
-              Don't just delete the file; the audit trail matters for
-              compliance and for understanding why a contract was dropped.
+              Yes — <code>pinned retire &lt;claim-id&gt; --reason="..."</code>.
+              Test moves to <code>tests/pinned/retired/</code> with a per-file{" "}
+              <code>&lt;id&gt;.audit.json</code> for the audit trail.
             </dd>
 
-            <dt>What if I don't use PRs?</dt>
+            <dt>What if I don’t use PRs?</dt>
             <dd>
-              Pinned works locally too. <code>npx pinnedai baseline</code>{" "}
-              finds risky promises in your current code. <code>pinned
-              protect</code> turns them into pins interactively.{" "}
-              <code>pinned status</code> reads the cached state. The Claude
-              Code statusline keeps you informed without opening GitHub.
+              Pinned works locally too. <code>npx pinnedai init --auto</code>{" "}
+              creates the baseline. <code>pinned audit --learned</code> finds
+              similar code paths. <code>pinned status</code> reads the cached
+              state. Claude Code statusline keeps you informed without opening
+              GitHub.
             </dd>
           </dl>
         </div>
