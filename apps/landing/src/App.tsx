@@ -39,8 +39,9 @@ export function App() {
           <div className="nav-links">
             <a href="#how">How it works</a>
             <a href="#protects">What it protects</a>
+            <a href="#pricing">Pricing</a>
             <a href="/proof">Proof</a>
-            <a href="https://github.com/pinnedai/pinnedai#readme">Docs</a>
+            <a href="https://github.com/pinnedai/pinnedai/tree/master/docs/integrations">Docs</a>
             <a href="https://github.com/pinnedai/pinnedai">GitHub</a>
           </div>
           <a href="#get-started" className="nav-cta">Try free beta</a>
