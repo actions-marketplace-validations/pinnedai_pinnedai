@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/for-nextjs", "destination": "/index.html" },
+    { "source": "/for-claude-code", "destination": "/index.html" },
+    { "source": "/for-cursor", "destination": "/index.html" },
+    { "source": "/proof", "destination": "/index.html" }
+  ]
+}
