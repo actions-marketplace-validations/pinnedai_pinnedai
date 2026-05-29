@@ -702,7 +702,7 @@ If compliance requires that PR descriptions never transit our infrastructure, op
 
 ```yaml
 # .github/workflows/pinned.yml
-- uses: pinnedai/pinnedai-action@v1
+- uses: pinnedai/pinnedai@v0.1.0
   with:
     byok: anthropic   # or "openai"
   env:

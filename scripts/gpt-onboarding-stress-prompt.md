@@ -30,7 +30,7 @@ Key facts about the install:
 - Node 20+ required (`engines.node` enforced)
 - pnpm 9 / npm / yarn all supposed to work
 - `pinned init --auto` runs vitest auto-install if vitest is missing (using whatever package manager the user is on)
-- The composite GitHub Action is at `pinnedai/pinnedai-action@v1` (separate repo from the npm package)
+- The composite GitHub Action is at `pinnedai/pinnedai@v0.1.0` (separate repo from the npm package)
 - Hosted Cloudflare Worker at `api.pinnedai.dev` handles OIDC + LLM fallback. Not deployed yet at time of this prompt — assume it WILL be live by launch.
 - `pinned init --auto` modifies these files (each opt-out via flag):
   - `tests/pinned/.registry.json` (new)
