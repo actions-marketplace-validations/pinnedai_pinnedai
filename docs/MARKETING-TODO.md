@@ -77,7 +77,7 @@ placement; the section is sloppy enough that approximate placement is
 fine.
 
 ```markdown
-- [pinnedai/pinnedai](https://github.com/pinnedai/pinnedai/tree/master/apps/mcp) 📇 🏠 🍎 🪟 🐧 - Stops your AI from re-introducing bugs, leaking provider keys, or weakening tests — and teaches the agent your repo's specific rules over time. Bug fixes become permanent regression guards; blocked mistakes become repo-specific AI lessons the agent reads before its next edit. Local-first. Apache 2.0.
+- [pinnedai/pinnedai](https://github.com/pinnedai/pinnedai/tree/master/apps/mcp) 📇 🏠 🍎 🪟 🐧 - Stops your AI from re-introducing bugs, leaking provider keys, or weakening tests. Bug fixes become permanent regression guards; blocked mistakes become AI lessons the agent reads and learns from before its next edit. Local-first. Apache 2.0.
 ```
 
 **Do NOT add the 🤖🤖🤖 tag to the PR title** — that opt-in is for autonomous bot PRs. You're a human submitter.
