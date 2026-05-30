@@ -1971,3 +1971,73 @@ html { scroll-behavior: smooth; }
   .nav-cta { padding: 6px 10px; font-size: 0.82rem; }
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   Mobile overflow fixes — round 2 (hero h1 + demo chips)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Hero h1 was not wrapping aggressively enough on mobile. Force
+   word-wrap and reduce font-size further at the smallest sizes. */
+.hero-copy h1 {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  hyphens: auto;
+}
+
+@media (max-width: 600px) {
+  .hero-copy h1 {
+    font-size: 1.65rem;
+    line-height: 1.15;
+  }
+  .hero-sub, .hero-sub-2 {
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+  }
+  .loop {
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 420px) {
+  .hero-copy h1 { font-size: 1.5rem; }
+}
+
+@media (max-width: 360px) {
+  .hero-copy h1 { font-size: 1.4rem; }
+}
+
+/* Demo "Parsed claims" chips overflowed on mobile because:
+   - .chip is `inline-flex` (doesn't shrink to container)
+   - .chip-meta has `margin-left: auto` pushing meta to the far right
+   - Long route paths inside `.chip-route` don't break-word
+   Fix: at mobile, make chips full-width-stackable, wrap their
+   internal items, and force long route paths to break. */
+@media (max-width: 700px) {
+  .demo-claim-list {
+    gap: 8px;
+  }
+  .chip {
+    display: flex;            /* was inline-flex */
+    flex-wrap: wrap;
+    max-width: 100%;
+    align-items: flex-start;
+    gap: 6px 10px;
+    padding: 10px 12px;
+  }
+  .chip-route {
+    flex: 1 1 100%;           /* let route own its own line if long */
+    min-width: 0;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    font-size: 0.86rem;
+  }
+  .chip-meta {
+    margin-left: 0;           /* drop the auto-right alignment */
+    width: 100%;
+    font-size: 0.8rem;
+  }
+  .chip-tag {
+    flex: 0 0 auto;
+  }
+}
+
