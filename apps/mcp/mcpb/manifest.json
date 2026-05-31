@@ -1,0 +1,73 @@
+{
+  "manifest_version": "0.2",
+  "name": "pinnedai-mcp",
+  "display_name": "Pinned",
+  "version": "0.1.0",
+  "description": "Stops your AI from re-introducing bugs, leaking provider keys, or weakening tests. Bug fixes become permanent regression guards; blocked mistakes become AI lessons the agent reads and learns from before its next edit.",
+  "long_description": "When your AI coder (Claude / Cursor / Cline / Copilot) fixes a bug in your repo, Pinned writes a permanent test that catches that bug if it ever comes back. When the agent tries to skip a failing test, leak an API key, or weaken an auth check, Pinned blocks the commit and saves a lesson the agent reads and learns from before its next edit.\n\nThis MCP server exposes Pinned's guard-checking and lesson-learning to MCP-aware agents (Claude Desktop / Cursor / Cline / Continue) as 6 tools. Each response includes a human_summary and agent_instruction field so the agent reports guard status in its final answer rather than using Pinned silently.\n\nLocal-first, no telemetry. Pairs with the pinnedai CLI (npm install -g pinnedai).",
+  "author": {
+    "name": "Michael Zon",
+    "url": "https://github.com/mzon7"
+  },
+  "homepage": "https://pinnedai.dev",
+  "documentation": "https://github.com/pinnedai/pinnedai#readme",
+  "support": "https://github.com/pinnedai/pinnedai/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pinnedai/pinnedai"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "ai-coding",
+    "claude-code",
+    "cursor",
+    "regression-testing",
+    "guard",
+    "pre-commit",
+    "mcp",
+    "ai-safety"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "node_modules/pinnedai-mcp/dist/server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/node_modules/pinnedai-mcp/dist/server.js"
+      ],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "pinned_before_code_change",
+      "description": "Surfaces active guards + AI lessons before edits. Call before editing an AI-coded repo."
+    },
+    {
+      "name": "pinned_before_done_check",
+      "description": "Runs the full guard check before reporting work complete. Returns PASS / REVIEW / BLOCK."
+    },
+    {
+      "name": "pinned_scan_diff",
+      "description": "Finds unprotected risk surfaces in the current diff (new routes, webhooks, env edits, etc.)."
+    },
+    {
+      "name": "pinned_list_guards",
+      "description": "Lists active Pinned guards in the repository."
+    },
+    {
+      "name": "pinned_check_pr_description",
+      "description": "Parses a PR description for behavioral claims (auth, rate-limits, webhook idempotency, etc.)."
+    },
+    {
+      "name": "pinned_suggest_init",
+      "description": "Checks whether a repository has Pinned installed. Recommends `npx pinnedai init` if missing."
+    }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

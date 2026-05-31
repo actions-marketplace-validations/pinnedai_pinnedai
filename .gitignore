@@ -34,3 +34,8 @@ audit/oss-sweep/.clones/
 
 # pulse.sh local snapshot log
 .pulse-log
+
+# mcpb staging + build artifacts
+apps/mcp/mcpb/node_modules/
+apps/mcp/mcpb/package*.json
+apps/mcp/*.mcpb
