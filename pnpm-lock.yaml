@@ -91,6 +91,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@3.25.76)
+      pinnedai:
+        specifier: ^0.1.0
+        version: 0.1.2(vitest@2.1.9(@types/node@20.19.9))
       zod:
         specifier: ^3.25.0
         version: 3.25.76
@@ -2639,6 +2642,16 @@ packages:
   picomatch@4.0.4:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
     engines: {node: '>=12'}
+
+  pinnedai@0.1.2:
+    resolution: {integrity: sha512-dbVOX2alhDw6/f/mxhJ5xYTQgPGaZUVsxjELzey4kRSIJjVvO1mk5UvJRfqafVutW6F2V44vqvfVhtLHMVYATg==}
+    engines: {node: '>=20'}
+    hasBin: true
+    peerDependencies:
+      vitest: '>=1 <4'
+    peerDependenciesMeta:
+      vitest:
+        optional: true
 
   pirates@4.0.7:
     resolution: {integrity: sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA==}
@@ -5605,6 +5618,12 @@ snapshots:
   picomatch@2.3.2: {}
 
   picomatch@4.0.4: {}
+
+  pinnedai@0.1.2(vitest@2.1.9(@types/node@20.19.9)):
+    dependencies:
+      commander: 12.1.0
+    optionalDependencies:
+      vitest: 2.1.9(@types/node@20.19.9)
 
   pirates@4.0.7: {}
 
