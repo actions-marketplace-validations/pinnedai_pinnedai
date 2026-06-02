@@ -1,0 +1,10 @@
+{
+  "category": "url-literal-typo",
+  "variation": "nextjs-api-base",
+  "fixSubject": "fix: API base URL was pointing at the staging environment (would have broken every prod call). Lock in the correct host.",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["url-literal-preserved"],
+    "containingFile": "src/api.ts"
+  }
+}
