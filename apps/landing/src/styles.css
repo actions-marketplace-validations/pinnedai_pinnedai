@@ -1156,12 +1156,9 @@ html, body { overflow-x: hidden; }
   text-decoration: none;
 }
 .nav-brand:hover { text-decoration: none; }
-.nav-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px rgba(255, 180, 84, 0.15);
+.nav-logo {
+  display: block;
+  border-radius: 6px;
 }
 .nav-name { font-family: var(--mono); }
 .nav-links {

@@ -39,3 +39,4 @@ audit/oss-sweep/.clones/
 apps/mcp/mcpb/node_modules/
 apps/mcp/mcpb/package*.json
 apps/mcp/*.mcpb
+pinnedai-frozen.png

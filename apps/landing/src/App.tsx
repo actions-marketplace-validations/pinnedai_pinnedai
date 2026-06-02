@@ -33,7 +33,7 @@ export function App() {
       <nav className="nav">
         <div className="container nav-inner">
           <a href="/" className="nav-brand">
-            <span className="nav-dot" />
+            <img src="/nav-logo.svg" alt="" className="nav-logo" width="30" height="30" />
             <span className="nav-name">pinnedai</span>
           </a>
           <div className="nav-links">

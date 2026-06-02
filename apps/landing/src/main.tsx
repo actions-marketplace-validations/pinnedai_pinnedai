@@ -1,5 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { App } from "./App.js";
 import { ForNextjs } from "./seo/ForNextjs.js";
 import { ForClaudeCode } from "./seo/ForClaudeCode.js";
@@ -28,5 +30,13 @@ function route() {
 }
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>{route()}</StrictMode>
+  <StrictMode>
+    {route()}
+    {/* Vercel Analytics + Speed Insights — privacy-first, no cookies,
+        no PII. Only fires on production (Vercel-served) origins; does
+        nothing on `pnpm dev` localhost. Tracks: pageviews, referrers,
+        Core Web Vitals. Nothing user-identifying. */}
+    <Analytics />
+    <SpeedInsights />
+  </StrictMode>
 );

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="amberFav" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd28a"/>
+      <stop offset="1" stop-color="#e89a3a"/>
+    </linearGradient>
+    <linearGradient id="woodFav" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#a67434"/>
+      <stop offset="0.5" stop-color="#e0ad6e"/>
+      <stop offset="1" stop-color="#8a5d28"/>
+    </linearGradient>
+  </defs>
+  <!-- transparent bg for nav use -->
+
+  <!-- Clothesline — thicker so it reads at tab favicon sizes -->
+  <path d="M 0 124 Q 256 158 512 124" fill="none" stroke="#cfd6df" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- Big robot body -->
+  <rect x="50" y="158" width="412" height="312" rx="46" fill="url(#amberFav)" stroke="#000000" stroke-width="5"/>
+  <ellipse cx="118" cy="162" rx="28" ry="7" fill="#000000" opacity="0.35"/>
+  <ellipse cx="394" cy="162" rx="28" ry="7" fill="#000000" opacity="0.35"/>
+  <circle cx="84"  cy="200" r="9" fill="#000000" opacity="0.4"/>
+  <circle cx="428" cy="200" r="9" fill="#000000" opacity="0.4"/>
+  <circle cx="84"  cy="424" r="9" fill="#000000" opacity="0.4"/>
+  <circle cx="428" cy="424" r="9" fill="#000000" opacity="0.4"/>
+  <ellipse cx="186" cy="282" rx="56" ry="58" fill="#000000"/>
+  <ellipse cx="326" cy="282" rx="56" ry="58" fill="#000000"/>
+  <circle cx="194" cy="274" r="22" fill="#ffd28a"/>
+  <circle cx="334" cy="274" r="22" fill="#ffd28a"/>
+  <path d="M 184 392 Q 256 444 328 392" fill="none" stroke="#000000" stroke-width="18" stroke-linecap="round"/>
+
+  <!-- Antenna -->
+  <line x1="256" y1="156" x2="256" y2="72" stroke="#cfd6df" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="256" cy="56" r="22" fill="#ffb454" stroke="#000000" stroke-width="3"/>
+
+  <!-- LEFT clothespin — BIGGER -->
+  <g>
+    <path d="M 88 52 Q 88 40 100 40 L 132 40 Q 144 40 144 52 L 144 108 L 88 108 Z"
+          fill="url(#woodFav)" stroke="#000000" stroke-width="3"/>
+    <line x1="116" y1="40" x2="116" y2="108" stroke="#000000" stroke-width="1.5" opacity="0.55"/>
+    <rect x="80" y="108" width="72" height="18" rx="5" fill="#cfd6df" stroke="#000000" stroke-width="2.5"/>
+    <line x1="86" y1="117" x2="146" y2="117" stroke="#000000" stroke-width="1.1" opacity="0.5"/>
+    <path d="M 90 128 L 144 128 L 138 218 L 96 218 Z" fill="url(#woodFav)" stroke="#000000" stroke-width="3"/>
+    <line x1="117" y1="142" x2="117" y2="210" stroke="#5d3d18" stroke-width="1.5" opacity="0.5"/>
+  </g>
+
+  <!-- RIGHT clothespin — BIGGER -->
+  <g>
+    <path d="M 368 52 Q 368 40 380 40 L 412 40 Q 424 40 424 52 L 424 108 L 368 108 Z"
+          fill="url(#woodFav)" stroke="#000000" stroke-width="3"/>
+    <line x1="396" y1="40" x2="396" y2="108" stroke="#000000" stroke-width="1.5" opacity="0.55"/>
+    <rect x="360" y="108" width="72" height="18" rx="5" fill="#cfd6df" stroke="#000000" stroke-width="2.5"/>
+    <line x1="366" y1="117" x2="426" y2="117" stroke="#000000" stroke-width="1.1" opacity="0.5"/>
+    <path d="M 368 128 L 422 128 L 416 218 L 374 218 Z" fill="url(#woodFav)" stroke="#000000" stroke-width="3"/>
+    <line x1="395" y1="142" x2="395" y2="210" stroke="#5d3d18" stroke-width="1.5" opacity="0.5"/>
+  </g>
+</svg>
