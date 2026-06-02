@@ -10,6 +10,8 @@ import {
   detectRateLimitAddedInDiff,
   detectPermissionAddedInDiff,
   detectNewPostEndpointsInDiff,
+  detectNewPagesInDiff,
+  detectNewValidationSchemasInDiff,
   type DiffByFile,
 } from "./scanDiff.js";
 
@@ -434,5 +436,145 @@ export async function POST(data) { return await save(data); }`
     ]);
     const hits = detectNewPostEndpointsInDiff(m);
     expect(hits).toHaveLength(1);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// detectNewPagesInDiff — auto-protect for page-renders.
+// ────────────────────────────────────────────────────────────
+
+describe("detectNewPagesInDiff", () => {
+  it("catches a new Next.js app-router page", () => {
+    const diff = diffOf(
+      "app/dashboard/page.tsx",
+      `export default function Dashboard() {
+  return <div>Dashboard</div>;
+}`
+    );
+    const hits = detectNewPagesInDiff(diff);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].route).toBe("/dashboard");
+  });
+
+  it("catches the root app/page.tsx", () => {
+    const diff = diffOf(
+      "app/page.tsx",
+      `export default function Home() { return <div>Home</div>; }`
+    );
+    const hits = detectNewPagesInDiff(diff);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].route).toBe("/");
+  });
+
+  it("catches nested app-router pages", () => {
+    const diff = diffOf(
+      "app/settings/profile/page.tsx",
+      `export default function Profile() { return <div>Profile</div>; }`
+    );
+    const hits = detectNewPagesInDiff(diff);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].route).toBe("/settings/profile");
+  });
+
+  it("catches pages-router files", () => {
+    const m: DiffByFile = new Map();
+    m.set("pages/about.tsx", [
+      "export default function About() { return <div>About</div>; }",
+    ]);
+    m.set("pages/blog/index.tsx", [
+      "export default function Blog() { return <div>Blog</div>; }",
+    ]);
+    const hits = detectNewPagesInDiff(m);
+    const routes = hits.map((h) => h.route).sort();
+    expect(routes).toContain("/about");
+    expect(routes).toContain("/blog");
+  });
+
+  it("REJECTS Next.js special files (_app, _document, etc.)", () => {
+    const m: DiffByFile = new Map();
+    m.set("pages/_app.tsx", ["export default function App() { return null; }"]);
+    m.set("pages/_document.tsx", ["export default function Doc() { return null; }"]);
+    m.set("pages/404.tsx", ["export default function NotFound() { return null; }"]);
+    expect(detectNewPagesInDiff(m)).toHaveLength(0);
+  });
+
+  it("REJECTS pages/api/* files (those are routes, not pages)", () => {
+    const diff = diffOf(
+      "pages/api/health.ts",
+      `export default function handler(req, res) { res.json({ ok: true }); }`
+    );
+    expect(detectNewPagesInDiff(diff)).toHaveLength(0);
+  });
+
+  it("REJECTS test files", () => {
+    const diff = diffOf(
+      "app/dashboard/page.test.tsx",
+      `it("renders", () => { /* ... */ });`
+    );
+    expect(detectNewPagesInDiff(diff)).toHaveLength(0);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// detectNewValidationSchemasInDiff — auto-protect for
+// validation-rejects-bad.
+// ────────────────────────────────────────────────────────────
+
+describe("detectNewValidationSchemasInDiff", () => {
+  it("catches zod schema with required fields on a POST handler", () => {
+    const diff = diffOf(
+      "app/api/signup/route.ts",
+      `import { z } from "zod";
+const SignupSchema = z.object({ email: z.string(), password: z.string(), name: z.string() });
+export async function POST(req) {
+  const body = SignupSchema.parse(await req.json());
+  return Response.json({ ok: true });
+}`
+    );
+    const hits = detectNewValidationSchemasInDiff(diff);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].route).toBe("/api/signup");
+    expect(hits[0].method).toBe("POST");
+    expect(hits[0].requiredFields.sort()).toEqual(["email", "name", "password"]);
+  });
+
+  it("excludes optional zod fields from requiredFields", () => {
+    const diff = diffOf(
+      "app/api/users/route.ts",
+      `const Schema = z.object({ email: z.string(), name: z.string().optional() });
+export async function POST(req) { return Response.json({}); }`
+    );
+    const hits = detectNewValidationSchemasInDiff(diff);
+    expect(hits[0].requiredFields).toContain("email");
+    expect(hits[0].requiredFields).not.toContain("name");
+  });
+
+  it("catches yup schema with .required() fields", () => {
+    const diff = diffOf(
+      "app/api/orders/route.ts",
+      `const Schema = yup.object({ amount: yup.number().required(), userId: yup.string().required() });
+export async function POST(req) { return Response.json({}); }`
+    );
+    const hits = detectNewValidationSchemasInDiff(diff);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].requiredFields.sort()).toEqual(["amount", "userId"]);
+  });
+
+  it("REJECTS schemas without required-field declarations", () => {
+    const diff = diffOf(
+      "app/api/users/route.ts",
+      `const Schema = z.object({ name: z.string().optional(), email: z.string().optional() });
+export async function POST(req) { return Response.json({}); }`
+    );
+    expect(detectNewValidationSchemasInDiff(diff)).toHaveLength(0);
+  });
+
+  it("REJECTS GET-only routes (validation doesn't apply)", () => {
+    const diff = diffOf(
+      "app/api/health/route.ts",
+      `const Schema = z.object({ name: z.string() });
+export async function GET() { return Response.json({}); }`
+    );
+    expect(detectNewValidationSchemasInDiff(diff)).toHaveLength(0);
   });
 });

@@ -1,0 +1,10 @@
+{
+  "category": "missing-export",
+  "variation": "auth-index",
+  "fixSubject": "fix: src/auth/index.ts forgot to re-export signIn — consumers got 'undefined is not a function' at runtime. Re-export it.",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["module-export-stable", "package-exports-exist"],
+    "containingFile": "src/auth/index.ts"
+  }
+}

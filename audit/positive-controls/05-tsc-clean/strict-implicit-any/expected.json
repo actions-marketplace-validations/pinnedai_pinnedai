@@ -1,0 +1,10 @@
+{
+  "category": "tsc-clean",
+  "variation": "strict-implicit-any",
+  "fixSubject": "fix: parse() had an implicit any on its `data` parameter; tsc --noEmit was failing in strict mode. Add the type annotation.",
+  "expect": {
+    "minRealCatches": 1,
+    "templates": ["tsc-clean"],
+    "containingFile": "tsconfig.json"
+  }
+}
