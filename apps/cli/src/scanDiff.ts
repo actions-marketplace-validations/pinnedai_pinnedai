@@ -1675,6 +1675,26 @@ export type DiffNewPostEndpointHit = {
   suggestedPin: string;
 };
 
+// Split a string on commas that are at the top level (not inside
+// parens / brackets / braces). Used by schema detectors to split
+// `email: z.string(), name: z.string().min(3)` into two entries.
+function splitTopLevelCommas(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "(" || c === "[" || c === "{") depth += 1;
+    else if (c === ")" || c === "]" || c === "}") depth -= 1;
+    else if (c === "," && depth === 0) {
+      parts.push(s.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(s.slice(start));
+  return parts;
+}
+
 // Pluralize the route's last segment for the target guess. Conservative
 // — only handles the common English plural cases. Customer overrides
 // during wrapper setup if their table name differs.
@@ -1750,6 +1770,187 @@ export function detectNewPostEndpointsInDiff(diffByFile: DiffByFile): DiffNewPos
       filePath,
       targetGuess,
       suggestedPin: `${method} ${route} creates a ${targetGuess} record`,
+    });
+  }
+  return out;
+}
+
+// ────────────────────────────────────────────────────────────
+// New-page detector (auto-protect mode)
+// ────────────────────────────────────────────────────────────
+//
+// Fires when the diff adds a new server-rendered page file (Next.js
+// app/page.tsx, app/[segment]/page.tsx, pages/index.tsx, etc.). Used
+// by auto-protect to emit a `page-renders` candidate pin so the
+// first React/Next/Vite render error catches the page on commit
+// instead of slipping into prod.
+export type DiffNewPageHit = {
+  template: "page-renders";
+  route: string;
+  filePath: string;
+  suggestedPin: string;
+};
+
+export function detectNewPagesInDiff(diffByFile: DiffByFile): DiffNewPageHit[] {
+  const out: DiffNewPageHit[] = [];
+  const seenRoutes = new Set<string>();
+  for (const [filePath, addedLines] of diffByFile.entries()) {
+    if (isTestPath(filePath)) continue;
+    // Detect Next.js app router page files (app/<route>/page.tsx).
+    let route: string | null = null;
+    const appPageMatch = /^(?:.*\/)?app\/((?:[^/]+\/)*)page\.(?:tsx|jsx|ts|js)$/.exec(filePath);
+    if (appPageMatch) {
+      const segments = appPageMatch[1].replace(/\/$/, "");
+      route = segments ? `/${segments}` : "/";
+    }
+    // Detect pages-router files (pages/<route>.tsx, pages/<route>/index.tsx).
+    if (!route) {
+      const pagesMatch = /^(?:.*\/)?pages\/((?:[^/]+\/)*)?([^/]+)\.(?:tsx|jsx|ts|js)$/.exec(filePath);
+      if (pagesMatch) {
+        const dirSegments = (pagesMatch[1] || "").replace(/\/$/, "");
+        const filename = pagesMatch[2];
+        // Skip _app, _document, _error, api/* — not user-facing pages.
+        if (
+          filename.startsWith("_") ||
+          filename === "404" ||
+          filename === "500" ||
+          dirSegments.startsWith("api/") ||
+          dirSegments === "api"
+        ) continue;
+        const filePart = filename === "index" ? "" : `/${filename}`;
+        route = dirSegments ? `/${dirSegments}${filePart}` : `${filePart}` || "/";
+      }
+    }
+    if (!route) continue;
+
+    // Must include actual content (added lines) — don't fire on
+    // file-delete diffs that happen to share the path shape.
+    const added = addedLines
+      .map((l) => l.replace(/\/\/.*$/, "").replace(/\/\*.*?\*\//g, ""))
+      .filter((l) => l.trim().length > 0)
+      .join("\n");
+    if (added.length === 0) continue;
+
+    // Require some signal that the file actually exports a default
+    // component or function — defensive against false matches on
+    // misnamed files.
+    const exportsDefault = /export\s+(?:default\s+|const\s+\w+\s*=|async\s+function\s+|function\s+)/i.test(added);
+    if (!exportsDefault) continue;
+
+    if (seenRoutes.has(route)) continue;
+    seenRoutes.add(route);
+
+    out.push({
+      template: "page-renders",
+      route,
+      filePath,
+      suggestedPin: `GET ${route} renders without crashing`,
+    });
+  }
+  return out;
+}
+
+// ────────────────────────────────────────────────────────────
+// New-validation-schema detector (auto-protect mode)
+// ────────────────────────────────────────────────────────────
+//
+// Fires when the diff adds a zod / yup / joi / valibot schema with
+// required fields on a route handler. Used by auto-protect to emit a
+// `validation-rejects-bad` candidate pin. Each required field becomes
+// a sub-test (POST with that field omitted → expect 4xx).
+export type DiffNewValidationHit = {
+  template: "validation-rejects-bad";
+  route: string;
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
+  filePath: string;
+  requiredFields: string[];
+  suggestedPin: string;
+};
+
+export function detectNewValidationSchemasInDiff(diffByFile: DiffByFile): DiffNewValidationHit[] {
+  const out: DiffNewValidationHit[] = [];
+  const seenKeys = new Set<string>();
+  for (const [filePath, addedLines] of diffByFile.entries()) {
+    if (isTestPath(filePath)) continue;
+    const route = deriveRouteFromPath(filePath);
+    if (!route) continue;
+
+    const added = addedLines
+      .map((l) => l.replace(/\/\/.*$/, "").replace(/\/\*.*?\*\//g, ""))
+      .filter((l) => l.trim().length > 0)
+      .join("\n");
+    if (added.length === 0) continue;
+
+    // Method detection — same as new-POST detector.
+    let method: "POST" | "PUT" | "PATCH" | "DELETE" | null = null;
+    const appRouterMatch = /export\s+(?:const\s+|async\s+function\s+|function\s+)(POST|PUT|PATCH|DELETE)\b/.exec(added);
+    if (appRouterMatch) method = appRouterMatch[1] as "POST" | "PUT" | "PATCH" | "DELETE";
+    if (!method) {
+      const pagesMatch = /req\.method\s*===?\s*['"](POST|PUT|PATCH|DELETE)['"]/.exec(added);
+      if (pagesMatch) method = pagesMatch[1] as "POST" | "PUT" | "PATCH" | "DELETE";
+    }
+    if (!method) continue;
+
+    // Extract required field names from supported schema shapes.
+    // Conservative — only fire when we can confidently identify
+    // schema with explicit required-field declarations.
+    const fields = new Set<string>();
+    // zod: `z.object({ name: z.string(), email: z.string().email() })`
+    // Strategy: extract the object body, split on top-level commas
+    // (respecting parens), then for each entry of shape `field: z.<...>`,
+    // check whether the entry contains .optional()/.nullable()/.nullish().
+    // Simpler + more correct than trying to encode every method-chain
+    // shape in a single capturing regex.
+    const zodObjectMatch = /z\.object\s*\(\s*\{([^}]{0,2000})\}\s*\)/g;
+    let zm: RegExpExecArray | null;
+    while ((zm = zodObjectMatch.exec(added)) !== null) {
+      const body = zm[1];
+      // Split on commas that are NOT inside parens (so `z.string().min(3)` stays one entry).
+      const entries = splitTopLevelCommas(body);
+      for (const entry of entries) {
+        const m = /^\s*([a-zA-Z_][\w]{0,40})\s*:\s*z\./.exec(entry);
+        if (!m) continue;
+        if (/\.(?:optional|nullable|nullish)\s*\(\s*\)/.test(entry)) continue;
+        fields.add(m[1]);
+      }
+    }
+    // yup: `yup.object({ name: yup.string().required() })`
+    const yupMatch = /yup\.object\s*\(\s*\{([^}]{0,2000})\}\s*\)/g;
+    let ym: RegExpExecArray | null;
+    while ((ym = yupMatch.exec(added)) !== null) {
+      const body = ym[1];
+      const entryRe = /([a-zA-Z_][\w]{0,40})\s*:\s*yup\.\w+\([^)]*\)(?:\.[a-zA-Z]+\([^)]*\))*\.required\(/g;
+      let entry: RegExpExecArray | null;
+      while ((entry = entryRe.exec(body)) !== null) {
+        fields.add(entry[1]);
+      }
+    }
+    // joi: `Joi.object({ name: Joi.string().required() })`
+    const joiMatch = /Joi\.object\s*\(\s*\{([^}]{0,2000})\}\s*\)/g;
+    let jm: RegExpExecArray | null;
+    while ((jm = joiMatch.exec(added)) !== null) {
+      const body = jm[1];
+      const entryRe = /([a-zA-Z_][\w]{0,40})\s*:\s*Joi\.\w+\([^)]*\)(?:\.[a-zA-Z]+\([^)]*\))*\.required\(/g;
+      let entry: RegExpExecArray | null;
+      while ((entry = entryRe.exec(body)) !== null) {
+        fields.add(entry[1]);
+      }
+    }
+
+    if (fields.size === 0) continue;
+
+    const key = `${method} ${route}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    const requiredFields = Array.from(fields);
+    out.push({
+      template: "validation-rejects-bad",
+      route,
+      method,
+      filePath,
+      requiredFields,
+      suggestedPin: `${method} ${route} requires fields ${requiredFields.join(", ")}`,
     });
   }
   return out;

@@ -15,7 +15,7 @@ import type { Claim } from "./claimParser.js";
 import { claimKey } from "./claimParser.js";
 import type { RegistryEntry } from "./registry.js";
 import type { ChangedFile } from "./scanDiff.js";
-import { scanDiffFull, findUnprotectedSiblings, AUTH_CHECK_PATTERNS, detectAuthChecksInDiff, detectValidationAddedInDiff, detectNewPostEndpointsInDiff, type DiffByFile } from "./scanDiff.js";
+import { scanDiffFull, findUnprotectedSiblings, AUTH_CHECK_PATTERNS, detectAuthChecksInDiff, detectValidationAddedInDiff, detectNewPostEndpointsInDiff, detectNewPagesInDiff, detectNewValidationSchemasInDiff, type DiffByFile } from "./scanDiff.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -242,6 +242,42 @@ export function classifyDiff(input: ClassifyInput): ClassifyResult {
         reason: `new ${h.method} endpoint ${h.route} added in this commit — pin asserts it returns 2xx AND actually performs its db-write side-effect (catches stub-returns-200-without-work bugs). Customer's AI agent must add the X-Pinned-Side-Effect wrapper before the pin can verify; see the pin's repairPrompt for the snippet.`,
         triggeredBy: h.filePath,
         decision: "ask",
+      });
+    }
+    // page-renders — fires when a new server-rendered page lands.
+    // Catches React/Next/Vite render errors that would otherwise hit
+    // prod silently (page returns 200 but body contains an error
+    // overlay). Safe to auto-pin: the test only requires PREVIEW_URL
+    // + GETs the path. No wrapper required.
+    for (const h of detectNewPagesInDiff(syntheticDiff)) {
+      tryEmit({
+        claim: {
+          template: "page-renders",
+          route: h.route,
+          raw: h.suggestedPin,
+        },
+        reason: `new page ${h.route} added in this commit — pin asserts it renders without crashing (no React/Next/Vite error markers in the body, > 500 bytes HTML).`,
+        triggeredBy: h.filePath,
+        decision: "safe",
+      });
+    }
+    // validation-rejects-bad — fires when a new zod/yup/joi schema
+    // with required fields lands on a POST/PUT/PATCH/DELETE handler.
+    // Each required field becomes a sub-test asserting the endpoint
+    // 4xx's when that field is missing. Safe to auto-pin: no wrapper
+    // required.
+    for (const h of detectNewValidationSchemasInDiff(syntheticDiff)) {
+      tryEmit({
+        claim: {
+          template: "validation-rejects-bad",
+          route: h.route,
+          method: h.method,
+          requiredFields: h.requiredFields,
+          raw: h.suggestedPin,
+        },
+        reason: `new validation schema for ${h.method} ${h.route} (${h.requiredFields.length} required field(s)) — pin asserts the endpoint correctly 4xx's on malformed JSON + bodies missing each required field.`,
+        triggeredBy: h.filePath,
+        decision: "safe",
       });
     }
   } catch {

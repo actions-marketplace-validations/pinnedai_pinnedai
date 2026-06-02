@@ -2,6 +2,25 @@
 
 All notable changes to pinnedai. Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This file tracks the `pinnedai` npm package version; the Cloudflare Worker tracks its own version independently in `apps/edge/`.
 
+## [0.2.6] — 2026-06-02
+
+Closes the remaining v0.2.0 auto-detector gap — `page-renders` and `validation-rejects-bad` now also auto-fire on the diff that introduces them, matching what 0.2.5 did for `happy-path-with-side-effect`. All three workhorse templates from Claude session feedback (named in 0.2.0) now reach customers via auto-protect, not just explicit claims.
+
+### Added
+
+- **`detectNewPagesInDiff()`** in `scanDiff.ts` — scans the diff for new Next.js app-router page files (`app/<path>/page.tsx`) + pages-router files (`pages/<path>.tsx`, `pages/<path>/index.tsx`). Excludes `_app.tsx`, `_document.tsx`, `404.tsx`, `500.tsx`, `pages/api/*` (not user-facing pages). Requires a top-level export to fire. Emits a `page-renders` candidate with `decision: "safe"` (no customer setup needed; the test just GETs the path).
+- **`detectNewValidationSchemasInDiff()`** in `scanDiff.ts` — scans the diff for new `z.object({ ... })`, `yup.object({ ... .required() })`, `Joi.object({ ... .required() })` schemas on POST/PUT/PATCH/DELETE handlers. Extracts the list of required field names (correctly excludes `.optional()` / `.nullable()` / `.nullish()`). Emits a `validation-rejects-bad` candidate with `decision: "safe"` and the extracted field list — each becomes a missing-field sub-test in the emitted pin.
+- **Shared `splitTopLevelCommas()` helper** for the schema body parser — handles nested parens correctly so `z.string().min(3)` doesn't false-split.
+- **13 unit tests** in `diffDetectors.test.ts` covering: Next.js app router pages, pages-router files, nested routes, root page, exclusions (`_app`, `_document`, `pages/api/*`, test files), zod with optional fields, yup with `.required()`, GET-only route rejection.
+
+### Why ship all three auto-detectors together (instead of "deferring" 2 of 3)
+
+Per the [[dont-defer-buildable-fixes]] memory rule locked earlier this session. Original 0.2.0 ship was the wrong call — should have included all three auto-detectors as one batch. This release closes that gap so we don't accumulate more day-one incidents like 0.2.0's POST /api/signup 400 → "deferred to 0.2.1" → prod regression cycle.
+
+### Impact
+
+A new Next.js app with a typical structure (a few pages + API routes + zod schemas) now gets pinned automatically on first `git commit` after `pinned init` — no manual claims, no manual schema annotations, no AGENT SETUP REQUIRED prompts (except where the X-Pinned-Side-Effect header is needed for happy-path verification).
+
 ## [0.2.5] — 2026-06-02
 
 Auto-detect new POST/PUT/PATCH/DELETE endpoints and auto-pin them with happy-path-with-side-effect. Closes the gap that let a 400 regression ship on `/api/signup` in socialideagen yesterday: the v0.2.0 happy-path template existed but only fired on explicit claims, never on auto-protect. Now any new mutating endpoint gets a pin candidate automatically.
