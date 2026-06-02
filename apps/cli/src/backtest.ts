@@ -988,6 +988,12 @@ function relevantPathsForClaim(claim: Claim): string[] | null {
       return [claim.filePath];
     case "form-submit-error-handling":
       return [claim.filePath];
+    case "page-renders":
+    case "validation-rejects-bad":
+    case "happy-path-with-side-effect":
+      // Live-HTTP templates — no static-file optimization; replay
+      // against full window. Same as other HTTP templates above.
+      return null;
   }
 }
 

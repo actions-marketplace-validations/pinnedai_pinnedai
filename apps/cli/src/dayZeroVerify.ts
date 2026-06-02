@@ -258,6 +258,13 @@ function preflight(claim: Claim, cwd: string): string | null {
       }
       return null;
     }
+    case "page-renders":
+    case "validation-rejects-bad":
+    case "happy-path-with-side-effect":
+      // Live-HTTP templates — no source-file preflight check needed.
+      // Templates' own skipIf-on-missing-PREVIEW_URL handles the
+      // common "can't actually verify right now" case.
+      return null;
   }
 }
 

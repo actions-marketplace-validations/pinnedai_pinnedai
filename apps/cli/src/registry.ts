@@ -262,6 +262,12 @@ export function coverageFromClaim(claim: Claim): PinCoverage {
       return { files: [claim.filePath] };
     case "form-submit-error-handling":
       return { files: [claim.filePath] };
+    case "page-renders":
+      return { routes: [claim.route] };
+    case "validation-rejects-bad":
+      return { routes: [claim.route] };
+    case "happy-path-with-side-effect":
+      return { routes: [claim.route] };
   }
 }
 
@@ -416,6 +422,12 @@ function claimLabel(c: Claim): string {
       return `\`${escapeMarkdownCell(c.shape)}: ${escapeMarkdownCell(c.newValue)}\` in \`${escapeMarkdownCell(c.filePath)}\``;
     case "form-submit-error-handling":
       return `\`form error-handling\` in \`${escapeMarkdownCell(c.filePath)}\``;
+    case "page-renders":
+      return `\`GET ${escapeMarkdownCell(c.route)}\` renders`;
+    case "validation-rejects-bad":
+      return `\`${escapeMarkdownCell(c.method)} ${escapeMarkdownCell(c.route)}\` rejects bad input`;
+    case "happy-path-with-side-effect":
+      return `\`${escapeMarkdownCell(c.method)} ${escapeMarkdownCell(c.route)}\` writes to \`${escapeMarkdownCell(c.sideEffectTarget)}\``;
   }
 }
 

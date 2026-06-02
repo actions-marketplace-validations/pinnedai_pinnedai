@@ -54,6 +54,9 @@ export { generateWebhookHandlerExistsTest } from "./templates/webhookHandlerExis
 export { generateImportPathResolvesTest } from "./templates/importPathResolves.js";
 export { generateChangedLiteralPreservedTest } from "./templates/changedLiteralPreserved.js";
 export { generateFormSubmitErrorHandlingTest } from "./templates/formSubmitErrorHandling.js";
+export { generatePageRendersTest } from "./templates/pageRenders.js";
+export { generateValidationRejectsBadTest } from "./templates/validationRejectsBad.js";
+export { generateHappyPathWithSideEffectTest } from "./templates/happyPathWithSideEffect.js";
 export type { GeneratedTest, GenerateOpts } from "./templates/rateLimit.js";
 
 import type { Claim } from "./claimParser.js";
@@ -82,10 +85,52 @@ import { generateWebhookHandlerExistsTest } from "./templates/webhookHandlerExis
 import { generateImportPathResolvesTest } from "./templates/importPathResolves.js";
 import { generateChangedLiteralPreservedTest } from "./templates/changedLiteralPreserved.js";
 import { generateFormSubmitErrorHandlingTest } from "./templates/formSubmitErrorHandling.js";
+import { generatePageRendersTest } from "./templates/pageRenders.js";
+import { generateValidationRejectsBadTest } from "./templates/validationRejectsBad.js";
+import { generateHappyPathWithSideEffectTest } from "./templates/happyPathWithSideEffect.js";
 
 // Convenience dispatcher — given any Claim, pick the right generator.
 // Keeps callers (CLI, landing demo, hosted Worker) DRY.
+//
+// When opts.pinnedVersion is set, injects a `// generated-by:
+// pinnedai@<version>` header into the emitted content so future
+// `pinned regenerate` runs can detect stale pins (pins whose template
+// emit predates a template-bug fix). See
+// [[library-upgrades-must-include-pin-regenerate]] memory.
+function stampGeneratedBy(result: GeneratedTest, version: string | undefined): GeneratedTest {
+  if (!version) return result;
+  const stamp = `// generated-by: pinnedai@${version}\n`;
+  // Inject right after the leading banner header so it stays near the
+  // top of the file regardless of which template emitted it. We look
+  // for the first blank line after the "═" banner block; if not found,
+  // prepend at the very top.
+  const lines = result.content.split("\n");
+  let insertAt = 0;
+  let inBanner = false;
+  for (let i = 0; i < lines.length && i < 30; i++) {
+    if (lines[i].includes("═══")) {
+      inBanner = true;
+      continue;
+    }
+    if (inBanner && lines[i].trim() === "") {
+      insertAt = i;
+      break;
+    }
+  }
+  const updated = [
+    ...lines.slice(0, insertAt),
+    stamp.trimEnd(),
+    ...lines.slice(insertAt),
+  ].join("\n");
+  return { ...result, content: updated };
+}
+
 export function generateTest(claim: Claim, opts: GenerateOpts): GeneratedTest {
+  const result = dispatchToTemplate(claim, opts);
+  return stampGeneratedBy(result, opts.pinnedVersion);
+}
+
+function dispatchToTemplate(claim: Claim, opts: GenerateOpts): GeneratedTest {
   switch (claim.template) {
     case "rate-limit":
       return generateRateLimitTest(claim, opts);
@@ -135,6 +180,12 @@ export function generateTest(claim: Claim, opts: GenerateOpts): GeneratedTest {
       return generateChangedLiteralPreservedTest(claim, opts);
     case "form-submit-error-handling":
       return generateFormSubmitErrorHandlingTest(claim, opts);
+    case "page-renders":
+      return generatePageRendersTest(claim, opts);
+    case "validation-rejects-bad":
+      return generateValidationRejectsBadTest(claim, opts);
+    case "happy-path-with-side-effect":
+      return generateHappyPathWithSideEffectTest(claim, opts);
   }
   // Exhaustiveness guard — if a new Claim variant is added without a
   // case here, TS will fail to compile this assignment with a clear

@@ -2,18 +2,18 @@
   "status": "green",
   "failingCount": 0,
   "failingClaimIds": [],
-  "totalPins": 50,
+  "totalPins": 51,
   "safetyNotes": 0,
   "recentlyAddedCount": 1,
-  "recentlyAddedAt": "2026-05-26T15:44:05.757Z",
+  "recentlyAddedAt": "2026-06-02T07:33:03.111Z",
   "suggestedCount": 0,
-  "lastCheckedSha": "49c26c08978dba33f86bcad66900bd9b060766bc",
-  "lastCheckedDirtyHash": "2a74f6c34a08f9e8",
-  "updatedAt": "2026-06-02T03:40:38.248Z",
+  "lastCheckedSha": "fcad11677188a7edbbd92406330755ddde9ca2a6",
+  "lastCheckedDirtyHash": "abe8a48482d75bbe",
+  "updatedAt": "2026-06-02T07:33:03.111Z",
   "lastAutoProtectAt": "2026-05-26T15:35:19.295Z",
   "lastAddNotifiedAt": "2026-05-25T21:15:17.542Z",
   "recentlyAddedSummaries": [
-    "`node ./apps/cli/dist/cli.js install-claude --help` runs without crashing (AI can't break the CLI command)"
+    "`node ./apps/cli/dist/cli.js regenerate --help` runs without crashing (AI can't break the CLI command)"
   ],
   "lastSavedAt": "2026-05-25T21:15:17.542Z",
   "lastSavedCount": 11,
@@ -97,10 +97,10 @@
       "originPr": "v0-1-1"
     }
   ],
-  "checksRun": 39,
-  "verifiedStreak": 4,
-  "skippedCount": 3,
-  "lastVerifiedAt": "2026-06-02T03:37:31.024Z",
-  "lastCoveredAt": "2026-06-02T03:37:31.026Z",
-  "lastCoveredCount": 47
+  "checksRun": 40,
+  "verifiedStreak": 5,
+  "skippedCount": 2,
+  "lastVerifiedAt": "2026-06-02T03:40:42.870Z",
+  "lastCoveredAt": "2026-06-02T03:40:42.872Z",
+  "lastCoveredCount": 48
 }

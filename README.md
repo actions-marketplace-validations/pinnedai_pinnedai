@@ -62,6 +62,16 @@ Per-tool integration docs:
 
 ---
 
+## v0.2 templates (just shipped)
+
+Three new templates for the contracts a real app actually wants pinned:
+
+- **`page-renders`** — *"GET /path renders without crashing."* Catches React/Next/Vite render errors + 500 pages + broken SSR.
+- **`validation-rejects-bad`** — *"POST /api/X with bad input returns 400."* Catches removed/weakened input validation. One pin, N sub-tests (malformed-JSON + per-field missing).
+- **`happy-path-with-side-effect`** — *"POST /api/X creates a users record."* Catches stub endpoints returning 200 without doing the work (misleading-green) via the `X-Pinned-Side-Effect` response header convention.
+
+See [CHANGELOG.md](./CHANGELOG.md#020--2026-06-02) for parser phrasings + the side-effect wrapper customers add.
+
 ## What Pinned protects
 
 Pinned focuses on AI-prone failure modes:
@@ -131,6 +141,7 @@ npx pinned audit --learned           # scan sibling code paths for risks matchin
 npx pinned probe-admin               # enumerate admin/internal routes + their protection state
 npx pinned list                      # list all active + retired pins
 npx pinned show <pin-id>             # what a pin asserts + what would make it fail (alias: `describe`)
+npx pinned regenerate --all          # re-emit all pin .test.ts files using the current templates — run this after upgrading pinnedai to apply any template-bug fixes to existing pins (alias: `regen`)
 ```
 
 ### Lifecycle

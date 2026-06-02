@@ -58,6 +58,7 @@ Auto-maintained by [pinnedai](https://pinnedai.dev). Each row is a permanent CI 
 | `POST /api/signup → 400` on missing body | [baseline-20260525-returns-status-api-signup-1l8a3d.test.ts](baseline-20260525-returns-status-api-signup-1l8a3d.test.ts) | `baseline-20260525` | [@michaelzon](https://github.com/michaelzon) | 2026-05-25 |
 | `POST /api/projects → 400` on missing body | [baseline-20260525-returns-status-api-projects-1v8zcf.test.ts](baseline-20260525-returns-status-api-projects-1v8zcf.test.ts) | `baseline-20260525` | [@michaelzon](https://github.com/michaelzon) | 2026-05-25 |
 | `cli node ./apps/cli/dist/cli.js install-claude --help` (exits 0) | [auto-20260526-cli-exits-zero-node-apps-cli-dist-cli-js-install-claude-help-3o50mm.test.ts](auto-20260526-cli-exits-zero-node-apps-cli-dist-cli-js-install-claude-help-3o50mm.test.ts) | `auto-20260526` | [@michaelzon](https://github.com/michaelzon) | 2026-05-26 |
+| `cli node ./apps/cli/dist/cli.js regenerate --help` (exits 0) | [auto-20260602-cli-exits-zero-node-apps-cli-dist-cli-js-regenerate-help-g5l86c.test.ts](auto-20260602-cli-exits-zero-node-apps-cli-dist-cli-js-regenerate-help-g5l86c.test.ts) | `auto-20260602` | [@michaelzon](https://github.com/michaelzon) | 2026-06-02 |
 
 ## Retired
 

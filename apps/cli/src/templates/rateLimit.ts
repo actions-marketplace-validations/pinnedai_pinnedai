@@ -15,6 +15,12 @@ import { PINNED_FETCH_HELPER_SRC } from "./sharedFetch.js";
 
 export type GenerateOpts = {
   prId: string;
+  // Version of the pinnedai CLI that's generating this pin. When set,
+  // the dispatcher injects `// generated-by: pinnedai@<version>` into
+  // the emitted file so future versions can detect stale pins
+  // (template bugs fixed since this pin was last generated). See
+  // [[library-upgrades-must-include-pin-regenerate]] memory.
+  pinnedVersion?: string;
 };
 
 export type GeneratedTest = {

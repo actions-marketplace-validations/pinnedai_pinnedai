@@ -246,7 +246,7 @@ program
     }
 
     const first = claims[0];
-    const gen = generateTest(first, { prId: "pr-demo" });
+    const gen = generateTest(first, { prId: "pr-demo", pinnedVersion: version });
     out(`Generated test file (would be written to tests/pinned/${gen.filename}):`);
     out("┌────────────────────────────────────────────────────────");
     for (const line of gen.content.split("\n")) out(`│ ${line}`);
@@ -365,7 +365,15 @@ program
       for (const d of dropped) out(`  - ${d}`);
       out("");
       out(
-        "Tip: rephrase using a supported pattern (run `pinned check` with no args for examples), or open an issue at https://github.com/pinnedai/pinnedai/issues — we add templates from real claim phrasings."
+        "Tip: rephrase using a supported pattern. Examples:"
+      );
+      out('         "Rate-limits /api/users to 60 req/min."');
+      out('         "Auth required on /api/admin."');
+      out('         "GET /dashboard renders without crashing."');
+      out('         "POST /api/signup requires fields email, password."');
+      out('         "POST /api/signup creates a users record."');
+      out(
+        "       Or open an issue at https://github.com/pinnedai/pinnedai/issues — we add templates from real claim phrasings."
       );
       out("");
     }
@@ -510,7 +518,7 @@ program
       // unrelated pins as if they were day-zero catches).
       const writtenPins: { filename: string; claim: Claim }[] = [];
       for (const claim of claims) {
-        const gen = generateTest(claim, { prId: opts.prId });
+        const gen = generateTest(claim, { prId: opts.prId, pinnedVersion: version });
         const target = join(outDir, gen.filename);
         if (opts.dryRun) {
           out(`# ${target}`);
@@ -1545,7 +1553,7 @@ program
               label: cfg.label,
               raw: `config-invariant ${cfg.label} in ${cfg.configPath}`,
             };
-            const gen = generateTest(claim, { prId });
+            const gen = generateTest(claim, { prId, pinnedVersion: version });
             const target = join(pinnedDir, gen.filename);
             try {
               assertInsideDir(target, pinnedDir);
@@ -1581,7 +1589,7 @@ program
               secretMarkers: sp.secretMarkers,
               raw: sp.suggestedPin,
             };
-            const gen = generateTest(claim, { prId });
+            const gen = generateTest(claim, { prId, pinnedVersion: version });
             const target = join(pinnedDir, gen.filename);
             try {
               assertInsideDir(target, pinnedDir);
@@ -1641,7 +1649,7 @@ program
               staticVerify: { filePath: wh.filePath, signature: wh.signature },
             };
             try {
-              const gen = generateTest(claim, { prId });
+              const gen = generateTest(claim, { prId, pinnedVersion: version });
               const target = join(pinnedDir, gen.filename);
               try {
                 assertInsideDir(target, pinnedDir);
@@ -1680,7 +1688,7 @@ program
               raw: lp.suggestedPin,
             };
             try {
-              const gen = generateTest(claim, { prId });
+              const gen = generateTest(claim, { prId, pinnedVersion: version });
               const target = join(pinnedDir, gen.filename);
               try {
                 assertInsideDir(target, pinnedDir);
@@ -1738,7 +1746,7 @@ program
               staticVerify: { filePath: cf.filePath, signature: cf.signature },
             };
             try {
-              const gen = generateTest(claim, { prId });
+              const gen = generateTest(claim, { prId, pinnedVersion: version });
               const target = join(pinnedDir, gen.filename);
               try {
                 assertInsideDir(target, pinnedDir);
@@ -1781,7 +1789,7 @@ program
               exports: exp.exports,
               raw: `package-exports-exist ${exp.modulePath} exports ${exp.exports.length}`,
             };
-            const gen = generateTest(claim, { prId });
+            const gen = generateTest(claim, { prId, pinnedVersion: version });
             const target = join(pinnedDir, gen.filename);
             try {
               assertInsideDir(target, pinnedDir);
@@ -1817,7 +1825,7 @@ program
               packageJsonSha256: lock.packageJsonSha256,
               raw: `lockfile-integrity ${lock.lockfilePath} sha256 ${lock.expectedSha256.slice(0, 12)}`,
             };
-            const gen = generateTest(claim, { prId });
+            const gen = generateTest(claim, { prId, pinnedVersion: version });
             const target = join(pinnedDir, gen.filename);
             try {
               assertInsideDir(target, pinnedDir);
@@ -1843,7 +1851,7 @@ program
         for (const s of safe.slice(0, MAX_BASELINE_AUTO_PINS)) {
           const parsed = parseClaims(s.suggestedPin);
           for (const claim of parsed) {
-            const gen = generateTest(claim, { prId });
+            const gen = generateTest(claim, { prId, pinnedVersion: version });
             const target = join(pinnedDir, gen.filename);
             try {
               assertInsideDir(target, pinnedDir);
@@ -1894,7 +1902,7 @@ program
             const k = `${claim.template}:${claimSlug(claim)}`;
             if (existingKeys.has(k)) continue;
             existingKeys.add(k);
-            const gen = generateTest(claim, { prId });
+            const gen = generateTest(claim, { prId, pinnedVersion: version });
             const target = join(pinnedDir, gen.filename);
             try {
               assertInsideDir(target, pinnedDir);
@@ -2746,6 +2754,12 @@ function summarizeClaimForBanner(claim: Claim): string {
       return `Fix preserved: \`${claim.newValue}\` stays in \`${claim.filePath}\` (catches AI reverting the ${claim.shape} fix from \`${claim.oldValue}\`)`;
     case "form-submit-error-handling":
       return `Form in \`${claim.filePath}\` keeps its submit-handler error handling (AI can't strip the try/catch and cause unhandled promise rejections)`;
+    case "page-renders":
+      return `Page \`${claim.route}\` keeps rendering (catches React/Next/Vite errors that crash the page silently)`;
+    case "validation-rejects-bad":
+      return `\`${claim.method} ${claim.route}\` keeps rejecting malformed / incomplete bodies (catches AI removing validation)`;
+    case "happy-path-with-side-effect":
+      return `\`${claim.method} ${claim.route}\` actually performs its ${claim.sideEffectKind} to \`${claim.sideEffectTarget}\` (catches stub endpoints returning 200 without doing the work)`;
   }
 }
 
@@ -3285,6 +3299,115 @@ program
     }
     out("");
   });
+
+// ---------- regenerate ----------
+// Regenerate one or all pin .test.ts files from their stored claims.
+// Necessary because pin files are self-contained — a library upgrade
+// doesn't reach the existing emitted code. After a template-bug fix
+// lands, this command re-emits each pin with the current template,
+// applying the fix retroactively. See
+// [[library-upgrades-must-include-pin-regenerate]] memory.
+program
+  .command("regenerate")
+  .alias("regen")
+  .description(
+    "Regenerate pin .test.ts file(s) from the stored claim using the current template. Applies template-bug fixes retroactively to pins generated by older CLI versions."
+  )
+  .argument(
+    "[claim-id]",
+    "Claim id to regenerate. Omit + pass --all to regenerate every active pin."
+  )
+  .option("--all", "Regenerate every active pin in the registry.")
+  .option(
+    "--dir <path>",
+    "Pinned tests directory (default: tests/pinned)",
+    "tests/pinned"
+  )
+  .option(
+    "--dry-run",
+    "Show what would change without writing. Diffs the new emit against the on-disk file."
+  )
+  .option("--quiet", "Suppress the pinned banner header.")
+  .action(
+    (claimId: string | undefined, opts: { all?: boolean; dir: string; dryRun?: boolean }) => {
+      printBanner();
+      assertInsideDir(opts.dir, process.cwd());
+      if (!existsSync(opts.dir)) {
+        err(`✗ ${opts.dir}/ does not exist. Run \`pinned init\` first.\n`);
+        process.exit(1);
+      }
+      if (!claimId && !opts.all) {
+        err(
+          "✗ Pass a claim-id, or use --all to regenerate every active pin.\n  e.g.  pinned regenerate auto-20260602-auth-required-api-admin-login-wy9ky0\n        pinned regenerate --all\n"
+        );
+        process.exit(1);
+      }
+      if (claimId) assertSafeId("claim id", claimId);
+
+      const reg = readRegistry(opts.dir);
+      const targets = opts.all
+        ? reg.claims.filter((c) => c.status === "active")
+        : reg.claims.filter((c) => c.status === "active" && c.claimId === claimId);
+
+      if (targets.length === 0) {
+        if (claimId) {
+          err(
+            `✗ No active pin with id '${claimId}'. Run \`pinned list\` to see all active pins.\n`
+          );
+        } else {
+          out("No active pins to regenerate.");
+        }
+        process.exit(claimId ? 1 : 0);
+      }
+
+      out(
+        `Regenerating ${targets.length} pin(s) using pinnedai@${version}'s templates...`
+      );
+      out("");
+
+      let changed = 0;
+      let unchanged = 0;
+      let errors = 0;
+
+      for (const entry of targets) {
+        const target = join(opts.dir, entry.filename);
+        try {
+          const gen = generateTest(entry.claim, {
+            prId: entry.prId,
+            pinnedVersion: version,
+          });
+          const currentContent = existsSync(target)
+            ? readFileSync(target, "utf8")
+            : null;
+          if (currentContent === gen.content) {
+            unchanged += 1;
+            continue;
+          }
+          if (opts.dryRun) {
+            out(`  ~ ${entry.filename} (would update)`);
+          } else {
+            writeFileSync(target, gen.content);
+            out(`  ✓ ${entry.filename}`);
+          }
+          changed += 1;
+        } catch (e) {
+          errors += 1;
+          err(`  ✗ ${entry.filename} — ${(e as Error).message}\n`);
+        }
+      }
+
+      out("");
+      const summary = opts.dryRun
+        ? `${changed} pin(s) would change. ${unchanged} already current. ${errors} errors.`
+        : `${changed} pin(s) updated. ${unchanged} already current. ${errors} errors.`;
+      out(summary);
+      if (!opts.dryRun && changed > 0) {
+        out("");
+        out("Commit the updated pins so the fix sticks:");
+        out("  git add tests/pinned/ && git commit -m \"chore(pinned): regenerate pins with latest templates\"");
+      }
+    }
+  );
 
 // ---------- catches ----------
 // Lifetime catch history — every regression Pinned has caught.
@@ -3936,6 +4059,33 @@ program
     }) => {
       if (!opts.quiet) printBanner();
       assertInsideDir(opts.dir, process.cwd());
+
+      // Stale-pin warning — surface pins generated by an older CLI
+      // version so users know to run `pinned regenerate --all`. Pins
+      // without a generated-by header (pre-0.2.1) are also flagged.
+      // Non-blocking; just informational.
+      if (!opts.quiet && existsSync(opts.dir)) {
+        const stale = findStalePins(opts.dir, version);
+        if (stale.length > 0) {
+          const olderCount = stale.filter((s) => s.version !== null).length;
+          const unstampedCount = stale.length - olderCount;
+          out("");
+          out(`⚠ ${stale.length} pin(s) generated by older pinnedai (current: ${version}):`);
+          if (olderCount > 0) {
+            const oldestVer = stale
+              .map((s) => s.version)
+              .filter((v): v is string => v !== null)
+              .sort()[0];
+            out(`  · ${olderCount} stamped older (oldest: ${oldestVer})`);
+          }
+          if (unstampedCount > 0) {
+            out(`  · ${unstampedCount} unstamped (generated by pinnedai < 0.2.1)`);
+          }
+          out(`  Run \`pinned regenerate --all\` to apply current templates`);
+          out(`  (fixes any template bugs that landed since these pins were created).`);
+          out("");
+        }
+      }
 
       // Phase 1 — scan-diff against the base ref + working tree.
       //
@@ -4825,7 +4975,7 @@ program
           continue;
         }
         for (const claim of parsed) {
-          const gen = generateTest(claim, { prId });
+          const gen = generateTest(claim, { prId, pinnedVersion: version });
           const target = join(opts.dir, gen.filename);
           assertInsideDir(target, opts.dir);
           try {
@@ -7350,9 +7500,67 @@ function describeFailureScenario(c: Claim): string {
       return `${c.filePath} reverts to the old ${c.shape} value '${c.oldValue}' (the fix that changed it to '${c.newValue}' was undone).`;
     case "form-submit-error-handling":
       return `Submit handler in ${c.filePath} loses its error-state path (no setError/catch/toast on submit failure — UI silently swallows errors).`;
+    case "page-renders":
+      return `${c.route} stops rendering — server returns a 500-class status, the body is missing/empty, or a React/Next/Vite error overlay (\`Application error: a client-side exception\`, \`__NEXT_ERROR_CODE\`, \`Cannot read prop\`, etc.) leaks into the response.`;
+    case "validation-rejects-bad":
+      return `${c.method} ${c.route} starts accepting bodies it should reject (malformed JSON returns 2xx, or a required field can now be omitted) — validation was removed or weakened.`;
+    case "happy-path-with-side-effect":
+      return `${c.method} ${c.route} returns 2xx but no longer emits the X-Pinned-Side-Effect header — the endpoint may be a stub returning a happy status without actually performing the ${c.sideEffectKind} to \`${c.sideEffectTarget}\` (misleading-green).`;
     default:
       return `the contract described above is broken.`;
   }
+}
+
+// Scan tests/pinned/*.test.ts files for the `// generated-by:
+// pinnedai@X.Y.Z` header. Pins missing the header (pre-0.2.1) OR
+// stamped with a version older than `currentVersion` are returned as
+// "stale" — the user is advised to `pinned regenerate --all` to apply
+// template fixes shipped since those pins were generated.
+function findStalePins(
+  dir: string,
+  currentVersion: string
+): Array<{ file: string; version: string | null }> {
+  if (!existsSync(dir)) return [];
+  let files: string[] = [];
+  try {
+    files = readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isFile() && d.name.endsWith(".test.ts"))
+      .map((d) => d.name);
+  } catch {
+    return [];
+  }
+  const stale: Array<{ file: string; version: string | null }> = [];
+  for (const file of files) {
+    const full = join(dir, file);
+    let head = "";
+    try {
+      head = readFileSync(full, "utf8").slice(0, 2048);
+    } catch {
+      continue;
+    }
+    const m = /\/\/\s*generated-by:\s*pinnedai@([0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.-]*)/.exec(head);
+    if (!m) {
+      stale.push({ file, version: null });
+      continue;
+    }
+    const v = m[1];
+    if (compareSemverLoose(v, currentVersion) < 0) {
+      stale.push({ file, version: v });
+    }
+  }
+  return stale;
+}
+
+// Loose semver compare — major.minor.patch only (ignores prerelease).
+// Returns -1 if a<b, 0 if equal, 1 if a>b.
+function compareSemverLoose(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+  }
+  return 0;
 }
 
 function describeClaim(c: Claim): string {
@@ -7407,6 +7615,12 @@ function describeClaim(c: Claim): string {
       return `changed-literal ${c.filePath}  →  ${c.shape}: ${c.oldValue} → ${c.newValue}`;
     case "form-submit-error-handling":
       return `form-error     ${c.filePath}  →  onSubmit keeps try/catch or .catch`;
+    case "page-renders":
+      return `page-renders   ${c.route}  →  GET returns rendered HTML (no error markers)`;
+    case "validation-rejects-bad":
+      return `validation     ${c.method} ${c.route}  →  rejects ${c.requiredFields.length || 1} bad-input case(s)`;
+    case "happy-path-with-side-effect":
+      return `happy-path     ${c.method} ${c.route}  →  emits X-Pinned-Side-Effect (${c.sideEffectKind}: ${c.sideEffectTarget})`;
   }
 }
 

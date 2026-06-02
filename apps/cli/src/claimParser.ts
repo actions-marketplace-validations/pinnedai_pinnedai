@@ -268,6 +268,12 @@ export function classifyPinStrength(
       // tsc --noEmit is deterministic build verification — strong
       // enough to count as behavioral (catches actual build breaks).
       return "behavioral";
+    case "page-renders":
+    case "validation-rejects-bad":
+    case "happy-path-with-side-effect":
+      // v0.2 workhorse templates — all live HTTP. Strong if PREVIEW_URL
+      // is configured, unverified otherwise (same model as auth-required).
+      return httpVerifiable ? "behavioral" : "unverified";
   }
 }
 
@@ -516,6 +522,47 @@ export type FormSubmitErrorHandlingClaim = {
   raw: string;
 };
 
+// ──────────────────────────────────────────────────────────────────────
+// v0.2 workhorse templates (2026-06-02) — three template additions
+// chosen to match the Claude-session feedback's explicit asks:
+//   * page-renders                  — "GET /path renders without crashing"
+//   * validation-rejects-bad        — "POST /api/X with bad input returns 400"
+//   * happy-path-with-side-effect   — "POST /api/X returns 200 + writes row Y"
+// See docs/v02-workhorse-templates-spec.md for the design + open-question
+// decisions (locked 2026-06-02 — Option C / X-Pinned-Side-Effect header).
+
+export type PageRendersClaim = {
+  template: "page-renders";
+  route: string;
+  // Default 500 bytes. Configurable per-pin for legitimate small pages.
+  minBodyBytes?: number;
+  raw: string;
+};
+
+export type ValidationRejectsBadClaim = {
+  template: "validation-rejects-bad";
+  route: string;
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
+  // Required fields detected from schema (zod/yup/joi) or parser cues.
+  // Each gets a "missing required field" sub-test. If empty, falls back
+  // to "POST with no body → expect 4xx" + "POST with malformed-JSON".
+  requiredFields: string[];
+  raw: string;
+};
+
+export type HappyPathWithSideEffectClaim = {
+  template: "happy-path-with-side-effect";
+  route: string;
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
+  // v0.2 ships db-write only. Other kinds (queue-enqueue, email-send,
+  // storage-write) extend trivially in v0.3+ via the same header
+  // convention (X-Pinned-Side-Effect: <kind>).
+  sideEffectKind: "db-write";
+  // Table/model name the endpoint writes to.
+  sideEffectTarget: string;
+  raw: string;
+};
+
 export type Claim =
   | RateLimitClaim
   | AuthRequiredClaim
@@ -540,7 +587,10 @@ export type Claim =
   | WebhookHandlerExistsClaim
   | ImportPathResolvesClaim
   | ChangedLiteralPreservedClaim
-  | FormSubmitErrorHandlingClaim;
+  | FormSubmitErrorHandlingClaim
+  | PageRendersClaim
+  | ValidationRejectsBadClaim
+  | HappyPathWithSideEffectClaim;
 
 // A route token: must start with ASCII `/`, must not contain whitespace,
 // trailing punctuation, OR dangerous Unicode characters (RTL-override,
@@ -854,6 +904,96 @@ const CLI_FLAG_REVERSE = new RegExp(
 // The expected slot is JSON.parse-able text inside backticks.
 const LIBRARY_RETURNS = new RegExp(
   String.raw`\x60(?<functionName>[A-Za-z_][\w]*\([^\x60\r\n)]*\))\x60\s+(?:in|from)\s+\x60(?<modulePath>[^\x60\r\n\s]{1,200})\x60\s+returns?\s+\x60(?<expected>[^\x60\r\n]{1,400})\x60`,
+  "gi"
+);
+
+// ---------- v0.2 workhorse templates ----------
+
+// Page-route token — same as ROUTE but ALSO allows a bare `/` (root
+// path). The base ROUTE pattern requires at least one non-special char
+// after the slash, which excludes the root. Pages legitimately live at
+// the root (homepage), so page-renders gets its own widened pattern.
+const PAGE_ROUTE = String.raw`\/(?:[^\s,.;:!?)\]{}<>'"\x60 --​-‏‪-‮⁦-⁩﻿]*)`;
+
+// page-renders — verbs: renders, loads, mounts, displays; optionally
+// "should" / "must" prefix; optionally "without crashing" / "cleanly"
+// / "properly" suffix. Covers Claude's "GET / renders without crashing"
+// + natural variants like "/dashboard should render" + "GET /about loads".
+const PAGE_RENDERS_GET = new RegExp(
+  String.raw`(?:^|\s)GET\s+(?<route>${PAGE_ROUTE})\s+(?:should\s+|must\s+)?(?:renders?|loads?|mounts?|displays?)(?:\s+(?:without\s+crashing|cleanly|properly|correctly))?`,
+  "gi"
+);
+// "Page /about renders" / "Page /dashboard should render"
+const PAGE_RENDERS_PAGE_FIRST = new RegExp(
+  String.raw`(?:^|\s)Page\s+(?<route>${PAGE_ROUTE})\s+(?:should\s+|must\s+)?(?:renders?|loads?|displays?)`,
+  "gi"
+);
+// "/about renders" / "/dashboard should render" — bare-route + verb,
+// requires the trailing "without crashing" / "cleanly" / "properly"
+// qualifier OR an explicit "should" / "must" prefix so we don't match
+// every `/route renders` substring in prose.
+const PAGE_RENDERS_BARE = new RegExp(
+  String.raw`(?<route>${PAGE_ROUTE})\s+(?:(?:should|must)\s+(?:renders?|loads?|mounts?|displays?)|(?:renders?|loads?)\s+(?:without\s+crashing|cleanly|properly|correctly))`,
+  "gi"
+);
+// "/about returns a working page" / "/about returns a rendered page"
+const PAGE_RENDERS_RETURNS_PAGE = new RegExp(
+  String.raw`(?<route>${PAGE_ROUTE})\s+returns?\s+a\s+(?:working|rendered|valid)\s+page`,
+  "gi"
+);
+
+// validation-rejects-bad — covers many natural phrasings:
+//   "POST /api/X requires fields A, B, C"
+//   "POST /api/X needs fields A, B"
+//   "POST /api/X validates body" / "validates request body"
+//   "POST /api/X validates against UserSchema"
+//   "POST /api/X must reject invalid email"
+//   "POST /api/X with bad input returns 400" (Claude's verbatim feedback)
+const VALIDATION_REQUIRES_FIELDS = new RegExp(
+  String.raw`(?:${TIER_CAP_METHOD_PREFIX})?(?<route>${ROUTE})\s+(?:requires?|needs?)\s+(?:the\s+)?(?:fields?|params?|properties|keys)\s+(?<fields>[A-Za-z][\w\s,'\x60"-]{0,200})`,
+  "gi"
+);
+const VALIDATION_VALIDATES_SCHEMA = new RegExp(
+  String.raw`(?:${TIER_CAP_METHOD_PREFIX})?(?<route>${ROUTE})\s+validates?\s+(?:body|request|input|against)\b`,
+  "gi"
+);
+// "POST /api/X with bad input returns 400" — Claude's verbatim
+// example phrasing. Also: "with invalid input", "with missing fields",
+// "with empty body", "without X" — all map to validation-rejects-bad.
+const VALIDATION_BAD_INPUT_RETURNS_4XX = new RegExp(
+  String.raw`(?:${TIER_CAP_METHOD_PREFIX})?(?<route>${ROUTE})\s+with\s+(?:bad|invalid|missing|malformed|empty|no)\s+(?:input|body|payload|data|fields?|email|password)\s+returns?\s+(?<status>4\d{2})`,
+  "gi"
+);
+// "POST /api/X must reject invalid X" / "POST /api/X rejects invalid X"
+const VALIDATION_MUST_REJECT = new RegExp(
+  String.raw`(?:${TIER_CAP_METHOD_PREFIX})?(?<route>${ROUTE})\s+(?:must\s+|should\s+)?rejects?\s+(?:invalid|bad|malformed|empty|missing)\s+(?<field>[a-zA-Z][\w-]{0,31})`,
+  "gi"
+);
+
+// happy-path-with-side-effect — "POST /api/signup creates a users record"
+// Target is captured EXPLICITLY (table/model name). Phrasings without
+// a named target (e.g. "writes a row" alone) are intentionally not
+// matched — without a target the pin is unverifiable.
+const HAPPY_PATH_CREATES_RECORD = new RegExp(
+  String.raw`(?:${TIER_CAP_METHOD_PREFIX})?(?<route>${ROUTE})\s+creates?\s+(?:an?\s+(?:new\s+)?|the\s+)?(?<target>[A-Za-z][\w]{0,40})\s+(?:record|row|entry|document)s?\b`,
+  "gi"
+);
+// "POST /api/signup writes a row to users" — REQUIRES "to <target>" so
+// we don't false-capture filler words ("a", "the", "new").
+const HAPPY_PATH_WRITES_TO_TARGET = new RegExp(
+  String.raw`(?:${TIER_CAP_METHOD_PREFIX})?(?<route>${ROUTE})\s+writes?\s+(?:an?\s+(?:row|record|entry|document)\s+)?(?:to|into|in)\s+(?:the\s+)?(?<target>[A-Za-z][\w]{0,40})(?:\s+(?:table|collection|database))?\b`,
+  "gi"
+);
+// "POST /api/x inserts into users" / "POST /api/x adds a user record"
+const HAPPY_PATH_INSERTS_INTO = new RegExp(
+  String.raw`(?:${TIER_CAP_METHOD_PREFIX})?(?<route>${ROUTE})\s+(?:inserts?|adds?)\s+(?:an?\s+(?:new\s+)?)?(?:into\s+(?:the\s+)?)?(?<target>[A-Za-z][\w]{0,40})\b`,
+  "gi"
+);
+// "POST /api/signup with valid body returns 200 + writes a row to users"
+// REQUIRES an explicit "to <target>" or "<target> row/record" so we
+// don't false-capture "a" / "the" / fillers.
+const HAPPY_PATH_VALID_BODY_RETURNS_200 = new RegExp(
+  String.raw`(?:${TIER_CAP_METHOD_PREFIX})?(?<route>${ROUTE})\s+with\s+(?:a\s+|valid\s+)+[a-z]{2,40}\s+returns?\s+(?:200|201|202)\s+(?:\+|and|,)\s+(?:writes?|creates?|inserts?|adds?)\s+(?:a\s+(?:row|record)\s+to\s+(?:the\s+)?|to\s+(?:the\s+)?)(?<target>[A-Za-z][\w]{0,40})\b`,
   "gi"
 );
 
@@ -1285,6 +1425,115 @@ export function parseClaims(rawBody: string): Claim[] {
     push(c, `${c.template}:${c.modulePath}:${c.functionName}:${rawExpected}`);
   }
 
+  // ---------- page-renders (v0.2) ----------
+  const pageRendersPatterns = [
+    PAGE_RENDERS_GET,
+    PAGE_RENDERS_PAGE_FIRST,
+    PAGE_RENDERS_BARE,
+    PAGE_RENDERS_RETURNS_PAGE,
+  ];
+  for (const regex of pageRendersPatterns) {
+    for (const m of body.matchAll(regex)) {
+      const g = m.groups!;
+      // Normalize route — root path comes out as empty after stripping
+      // the leading slash; preserve "/" for the root case.
+      const route = g.route === "" ? "/" : g.route;
+      const c: PageRendersClaim = {
+        template: "page-renders",
+        route,
+        raw: m[0],
+      };
+      push(c, `${c.template}:${c.route}`);
+    }
+  }
+
+  // ---------- validation-rejects-bad (v0.2) ----------
+  for (const m of body.matchAll(VALIDATION_REQUIRES_FIELDS)) {
+    const g = m.groups!;
+    const method = (g.method as "POST" | "PUT" | "PATCH" | "DELETE") || "POST";
+    const fields = g.fields
+      .split(/\s*,\s*|\s+and\s+/)
+      .map((f: string) => f.trim().replace(/^[`"']|[`"']$/g, ""))
+      .filter((f: string) => /^[a-zA-Z][a-zA-Z0-9_-]{0,31}$/.test(f));
+    if (fields.length === 0) continue;
+    const c: ValidationRejectsBadClaim = {
+      template: "validation-rejects-bad",
+      route: g.route,
+      method,
+      requiredFields: fields,
+      raw: m[0],
+    };
+    push(c, `${c.template}:${c.route}:${fields.join(",")}`);
+  }
+  for (const m of body.matchAll(VALIDATION_VALIDATES_SCHEMA)) {
+    const g = m.groups!;
+    const method = (g.method as "POST" | "PUT" | "PATCH" | "DELETE") || "POST";
+    const c: ValidationRejectsBadClaim = {
+      template: "validation-rejects-bad",
+      route: g.route,
+      method,
+      requiredFields: [],
+      raw: m[0],
+    };
+    push(c, `${c.template}:${c.route}:schema`);
+  }
+  // Claude's verbatim "POST /api/X with bad input returns 400" form
+  for (const m of body.matchAll(VALIDATION_BAD_INPUT_RETURNS_4XX)) {
+    const g = m.groups!;
+    const method = (g.method as "POST" | "PUT" | "PATCH" | "DELETE") || "POST";
+    const c: ValidationRejectsBadClaim = {
+      template: "validation-rejects-bad",
+      route: g.route,
+      method,
+      requiredFields: [],
+      raw: m[0],
+    };
+    push(c, `${c.template}:${c.route}:bad-input`);
+  }
+  // "POST /api/X must reject invalid email" form
+  for (const m of body.matchAll(VALIDATION_MUST_REJECT)) {
+    const g = m.groups!;
+    const method = (g.method as "POST" | "PUT" | "PATCH" | "DELETE") || "POST";
+    const c: ValidationRejectsBadClaim = {
+      template: "validation-rejects-bad",
+      route: g.route,
+      method,
+      requiredFields: [g.field],
+      raw: m[0],
+    };
+    push(c, `${c.template}:${c.route}:reject:${g.field}`);
+  }
+
+  // ---------- happy-path-with-side-effect (v0.2) ----------
+  const happyPathPatterns = [
+    HAPPY_PATH_CREATES_RECORD,
+    HAPPY_PATH_WRITES_TO_TARGET,
+    HAPPY_PATH_INSERTS_INTO,
+    HAPPY_PATH_VALID_BODY_RETURNS_200,
+  ];
+  for (const regex of happyPathPatterns) {
+    for (const m of body.matchAll(regex)) {
+      const g = m.groups!;
+      const method = (g.method as "POST" | "PUT" | "PATCH" | "DELETE") || "POST";
+      const target = g.target.toLowerCase();
+      // Reject targets that are filler words. These shouldn't match
+      // the regex if it's strict, but guard anyway in case future
+      // regex changes loosen the capture.
+      if (["a", "an", "the", "new", "row", "record", "entry"].includes(target)) {
+        continue;
+      }
+      const c: HappyPathWithSideEffectClaim = {
+        template: "happy-path-with-side-effect",
+        route: g.route,
+        method,
+        sideEffectKind: "db-write",
+        sideEffectTarget: target,
+        raw: m[0],
+      };
+      push(c, `${c.template}:${c.route}:${c.sideEffectTarget}`);
+    }
+  }
+
   return claims;
 }
 
@@ -1661,6 +1910,24 @@ export function describeClaimForUser(c: Claim): ClaimDisplay {
         promise: `The form's onSubmit handler keeps wrapping itself in try/catch or .catch — catches AI accidentally removing the error handling and producing unhandled promise rejections in production.`,
         check: `Reads \`${c.filePath}\` and asserts the captured onSubmit + error-handling shape is still present.`,
       };
+    case "page-renders":
+      return {
+        title: `\`${c.route}\` renders without crashing`,
+        promise: `The page at \`${c.route}\` keeps rendering as HTML — no React/Next/Vite error overlays, no 500 page, no empty/skeleton-only body.`,
+        check: `GETs \`${c.route}\` from PREVIEW_URL with \`Accept: text/html\`, asserts 200/304 + non-trivial HTML body + no known render-error markers (\`Application error\`, \`__NEXT_ERROR_CODE\`, \`Cannot read prop\`, etc.).`,
+      };
+    case "validation-rejects-bad":
+      return {
+        title: `\`${c.method} ${c.route}\` rejects bad input`,
+        promise: `The endpoint keeps refusing malformed JSON + bodies missing required fields (${c.requiredFields.length} field(s) tracked: ${c.requiredFields.join(", ") || "none extracted at pin-time"}) — catches removed/weakened validation.`,
+        check: `Sends N intentionally-bad ${c.method} requests to \`${c.route}\` (one per required field missing + one with malformed JSON), asserts each returns 4xx.`,
+      };
+    case "happy-path-with-side-effect":
+      return {
+        title: `\`${c.method} ${c.route}\` actually does the ${c.sideEffectKind} (not just returns 200)`,
+        promise: `The endpoint keeps performing its real side-effect (a ${c.sideEffectKind} to \`${c.sideEffectTarget}\`) — catches the misleading-green case where a refactor stubs out the work but keeps returning 200.`,
+        check: `Sends a valid ${c.method} to \`${c.route}\` with \`X-Pinned-Test: 1\`. Asserts response is 2xx AND emits \`X-Pinned-Side-Effect\` headers proving the side-effect ran. Requires a small response wrapper on the handler — see https://pinnedai.dev/docs/x-pinned-side-effect`,
+      };
   }
 }
 
@@ -1782,6 +2049,12 @@ export function badCaseForClaim(claim: Claim): string {
       return `\`${claim.filePath}\` no longer contains the fix's new value \`${claim.newValue}\` (${claim.shape}: the typo / drift / regression came back)`;
     case "form-submit-error-handling":
       return `the form in \`${claim.filePath}\` no longer wraps its submit handler in try/catch or .catch — async errors will surface as unhandled rejections`;
+    case "page-renders":
+      return `\`${claim.route}\` no longer renders (server returned a 500-class status, the body is missing/empty, or a React/Next/Vite error overlay leaked into the response)`;
+    case "validation-rejects-bad":
+      return `\`${claim.method} ${claim.route}\` accepted a request it should have rejected (malformed JSON or body missing a required field) — validation was removed or weakened`;
+    case "happy-path-with-side-effect":
+      return `\`${claim.method} ${claim.route}\` returned 2xx but didn't emit the X-Pinned-Side-Effect header — the endpoint may be a stub returning a happy status without actually performing the ${claim.sideEffectKind} to \`${claim.sideEffectTarget}\``;
   }
 }
 
@@ -1857,6 +2130,12 @@ export function claimRoute(c: Claim): string | null {
       return c.newValue;
     case "form-submit-error-handling":
       return c.filePath;
+    case "page-renders":
+      return c.route;
+    case "validation-rejects-bad":
+      return c.route;
+    case "happy-path-with-side-effect":
+      return c.route;
   }
 }
 
@@ -1985,6 +2264,12 @@ export function claimKey(c: Claim): string {
       return `changed-literal-preserved:${c.shape}:${c.filePath}:${c.newValue}`;
     case "form-submit-error-handling":
       return `form-submit-error-handling:${c.filePath}`;
+    case "page-renders":
+      return `page-renders:${c.route}`;
+    case "validation-rejects-bad":
+      return `validation-rejects-bad:${c.route}:${[...c.requiredFields].sort().join(",")}`;
+    case "happy-path-with-side-effect":
+      return `happy-path-with-side-effect:${c.route}:${c.sideEffectTarget}`;
   }
 }
 
